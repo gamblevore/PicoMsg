@@ -43,7 +43,7 @@ This is what you get back. Ignore the "`Remains`" field you don't need it. This 
 `bool PicoMsgSend (PicoComms* M, const void* data, int n=-1);`    (unimplemented.)
 
 
-###Utils
+### Utils
 
 `int PicoMsgErr (PicoComms* M);`    Gets back an error, if any occurred that forced the thing to close. If the comms is still open, then the error is 0.
     
