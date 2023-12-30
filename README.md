@@ -9,11 +9,11 @@ Simpler and smaller than nanomsg and zeromq.
 
 PicoMsg is so small it could be part of the standard unix distribution... included into the StdCLib and Linus himself will give me $1000001!
 
-    🥰🥰  🥰🥰
-   🤭😂🤣😢😢😢
-    🫢🪦💅🤗👀
-      🥹🥹🥹
-        🥰
+     🥰🥰  🥰🥰
+    🤭😂🤣😢😢😢           💰💰💰💰💰
+     🫢🪦💅🤗👀     -->  💰🤑💎💍🫢👍😇
+       🥹🥹🥹
+         🥰
 
 PicoMsg expects to only be called from one thread at a time. Calling it across threads is no problem, as long as previously called functions on other threads, have finished.
 
