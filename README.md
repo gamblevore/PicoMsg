@@ -62,7 +62,6 @@ Flags can be these:
     PicoNoisyChild
     PicoNoisyParent
     PicoNoisy               // combination of above
-    PicoQuitWithParent      // if parent exits, we will auto disconnect.
 
 
 ###

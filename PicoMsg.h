@@ -8,7 +8,6 @@
 #define PicoNoisyChild 1
 #define PicoNoisyParent 2
 #define PicoNoisy 3
-#define PicoQuitWithParent 4
 
 struct			PicoComms;
 struct			PicoMessage			{ int Remain;  int Length;  char* Data;  operator bool () {return Data;} };
@@ -173,8 +172,6 @@ struct PicoComms : PicoCommsData {
 	}
 
 	PicoMessage Get () {
-		if (!IsParent and Flags&PicoQuitWithParent and getppid() < 1)
-			return {0, 0, (char*)disconnect("Orphaned")};
 		if (Gotten.empty())
 			return {};
 		Lock.lock();
