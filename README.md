@@ -24,19 +24,13 @@ This is a very early, and untested beta. I guess I will update this note in some
 
 There are not many functions, and you don't need all of them, but is what I have so far:
 
-| asdasdasdasd     | 1123123123123      |   |   |   |
-|------------------|--------------------|---|---|---|
-| tterretertrewert | qweqqwwqeqweqweqwe |   |   |   |
-|                  |                    |   |   |   |
-|                  |                    |   |   |   |
-
-`PicoComms* PicoMsg (int Flags=PicoNoisy);`    This creates your message-passer. You use this for inter-process-communicatins (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout.
-    
-`int PicoMsgFork (PicoComms* M);`    This will fork your app, and then connect the two apps with PicoMsg.
-
-`void PicoMsgDestroy (PicoComms* M);`    Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
-    
-`PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0);`    Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive. 
+| Function                                                    | Description                                                                                                                                                         |
+|-------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| PicoComms* PicoMsg (int Flags=PicoNoisy)                    | Creates your message-passer. You use this for inter-process-communications (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout. |
+| int PicoMsgFork (PicoComms* M)                              | This will fork your app, and then connect the two apps with PicoMsg.                                                                                                |
+| void PicoMsgDestroy (PicoComms* M)                          | Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).                                                                                       |
+| bool PicoMsgSend (PicoComms* M, const void* data, int n=-1) | unimplemented                                                                                                                                                       |
+| PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0)      | Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.                                                    |
 
     struct PicoMessage {
         int Remain;
@@ -45,8 +39,6 @@ There are not many functions, and you don't need all of them, but is what I have
     };
 
 This is what you get back. Ignore the "`Remains`" field you don't need it. This gives you the `Length` of the data, and the `Data` itself. `Data` is allocated with `malloc` and you have to `free` it after.
-    
-`bool PicoMsgSend (PicoComms* M, const void* data, int n=-1);`    (unimplemented.)
 
 
 ### Utils
