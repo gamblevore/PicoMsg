@@ -22,7 +22,7 @@ This is a very early, and untested beta. I guess I will update this note in some
 
 ### Base API
 
-There are not many functions, and you don't need all of them, but is what I have so far:
+These are the functions you need to use PicoMsg:
 
 | Function                                                    | Description                                                                                                                                                         |
 |-------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -38,10 +38,12 @@ There are not many functions, and you don't need all of them, but is what I have
         char* Data;
     };
 
-This is what you get back. Ignore the "`Remains`" field you don't need it. This gives you the `Length` of the data, and the `Data` itself. `Data` is allocated with `malloc` and you have to `free` it after.
+This is what you get back. Ignore the "`Remain`" field you don't need it. This gives you the `Length` of the data, and the `Data` itself. `Data` is allocated with `malloc` and you have to `free` it after.
 
 
 ### Utils
+
+These functions are not always needed, but available in case you need them.
 
 `int PicoMsgErr (PicoComms* M);`    Gets back an error, if any occurred that forced the thing to close. If the comms is still open, then the error is 0.
     
