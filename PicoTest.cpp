@@ -41,11 +41,12 @@ void* Query (PicoComms* M) {
 	for (auto v: Sent) {
 		auto OK = PicoMsgGet(M, 1.0);
 		if (!OK)								return 0;
-		if (OK.Length != v.Length)				return PicoMsgDisconnect(M, "bad length");
+		if (OK.Length != v.Length)				return PicoMsgSay(M, "bad length");
 		int diff = memcmp(v.Data, OK.Data, v.Length);
-		if (diff)								return PicoMsgDisconnect(M, "netdown");
+		if (diff)								return PicoMsgSay(M, "netdown");
 		abc += v.Length;
-		PicoMsgSay(M,"Passed");
+		PicoMsgSay(M, "Passed");
+		free(OK.Data);
 	}
 	PicoMsgSay(M, "QD");
 	return 0;
@@ -55,8 +56,10 @@ void* Query (PicoComms* M) {
 void Respond (PicoComms* M) {
 	sleep(1); // give it a chance to receive
 	auto Mary = PicoMsgGet(M);
-	if (Mary)
+	if (Mary) {
 		puts(Mary.Data);
+		free(Mary.Data);
+	}
 	
 	while (!PicoMsgErr(M)) {
 		auto OK = PicoMsgGet(M, 10.0);
@@ -66,6 +69,7 @@ void Respond (PicoComms* M) {
 			(OK.Data)[i]++;
 		}
 		PicoMsgSend(M, OK.Data, OK.Length);
+		free(OK.Data); // or store it in the msg?
 	}
 }
 

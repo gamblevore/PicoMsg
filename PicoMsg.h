@@ -8,8 +8,7 @@
 #define PicoNoisyChild 1
 #define PicoNoisyParent 2
 #define PicoNoisy 3
-#define PicoCloseOnFailSend 4
-#define PicoQuitWithParent 8
+#define PicoQuitWithParent 4
 
 struct			PicoComms;
 struct			PicoMessage			{ int Remain;  int Length;  char* Data;  operator bool () {return Data;} };
@@ -132,7 +131,7 @@ struct PicoComms : PicoCommsData {
 		pid_t pid = fork();
 		if (pid < 0) {
 			Err = errno;
-			Disconnect("fork");
+			disconnect("fork");
 			return -1;
 		}
 		
@@ -175,7 +174,7 @@ struct PicoComms : PicoCommsData {
 
 	PicoMessage Get () {
 		if (!IsParent and Flags&PicoQuitWithParent and getppid() < 1)
-			return {0, 0, (char*)Disconnect("Orphaned")};
+			return {0, 0, (char*)disconnect("Orphaned")};
 		if (Gotten.empty())
 			return {};
 		Lock.lock();
@@ -197,7 +196,9 @@ struct PicoComms : PicoCommsData {
 		return nullptr;
 	}
 	
-	void* Disconnect (const char* why, bool Terminate=false) {
+
+//// INTERNALS
+	void* disconnect (const char* why, bool Terminate=false) {
 		if (!CanSend) return nullptr;
 		CanSend = false;
 		if (Terminate) {
@@ -207,8 +208,6 @@ struct PicoComms : PicoCommsData {
 		return Say("Closed", why);
 	}
 
-
-//// INTERNALS
 	PicoComms* constructor (int flags) {
 		(*(PicoCommsData*)this) = {};
 		WantRemove = false;
@@ -262,7 +261,7 @@ struct PicoComms : PicoCommsData {
 		
 	void* failed (int err=errno) {
 		Err = err;
-		return Disconnect(strerror(err));
+		return disconnect(strerror(err));
 	}
 	
 	bool safe_send (const void* data_, int n) {
@@ -297,7 +296,7 @@ struct PicoComms : PicoCommsData {
 
 		R = ntohl(R);
 		if (R == -1)
-			return Disconnect("Graceful");
+			return disconnect("Graceful");
 		
 		if (R <= 0 or R > MaxSend)
 			return failed(EDOM);
@@ -324,9 +323,10 @@ struct PicoComms : PicoCommsData {
 			Socket = 0;
 		}
 	}
+	
 	void destroy () {
 		PicoList.Remove(Index);
-		Disconnect("delete");
+		disconnect("delete");
 		for (auto V: Gotten) {
 			free(V.Data);
 		}
@@ -410,17 +410,12 @@ int PicoMsgErr (PicoComms* M) _pico_code_ (
 	return M->Err;
 )
 
-void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0, bool Strong=false) _pico_code_ (
+void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0, bool Strong=true) _pico_code_ (
 	return M->Say(A, B, Iter, Strong);
 )
 
 PicoMessageConfig* PicoMsgConfig (PicoComms* M) _pico_code_ (
 	return M;
 )
-
-void* PicoMsgDisconnect (PicoComms* M, const char* Why, bool Terminate=true) _pico_code_ (
-	return M->Disconnect(Why, Terminate); 
-)
-
 
 #endif
