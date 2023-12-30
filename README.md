@@ -24,21 +24,13 @@ This is a very early, and untested beta. I guess I will update this note in some
 
 There are not many functions, and you don't need all of them, but is what I have so far:
 
-    PicoComms* PicoMsg (int Flags=PicoNoisy);
+`PicoComms* PicoMsg (int Flags=PicoNoisy);`    This creates your message-passer. You use this for inter-process-communicatins (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout.
     
-This creates your message-passer. You use this for inter-process-communicatins (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout.
-    
-    int PicoMsgFork (PicoComms* M);
+`int PicoMsgFork (PicoComms* M);`    This will fork your app, and then connect the two apps with PicoMsg.
 
-This will fork your app, and then connect the two apps with PicoMsg.
-
-    void PicoMsgDestroy (PicoComms* M);
+`void PicoMsgDestroy (PicoComms* M);`    Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
     
-Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
-    
-    PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0);
-
-Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive. 
+`PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0);`    Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive. 
 
     struct PicoMessage {
         int Remain;
@@ -48,21 +40,16 @@ Gets a message if any exist. You can either return immediately if none are queue
 
 This is what you get back. Ignore the "`Remains`" field you don't need it. This gives you the `Length` of the data, and the `Data` itself. `Data` is allocated with `malloc` and you have to `free` it after.
     
-    bool PicoMsgSend (PicoComms* M, const void* data, int n=-1); // unimplemented.
+`bool PicoMsgSend (PicoComms* M, const void* data, int n=-1);`    (unimplemented.)
+
 
 ###Utils
 
-    int PicoMsgErr (PicoComms* M);
-
-Gets back an error, if any occurred that forced the thing to close. If the comms is still open, then the error is 0.
+`int PicoMsgErr (PicoComms* M);`    Gets back an error, if any occurred that forced the thing to close. If the comms is still open, then the error is 0.
     
-    void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0, bool Strong=true);
-
-Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name.
+`void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0, bool Strong=true);`    Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name.
     
-    PicoMessageConfig* PicoMsgConfig (PicoComms* M);
-    
-Gets the config object! Now you can do useful things like set PicoMsg's name, which it uses during error-reporting.
+`PicoMessageConfig* PicoMsgConfig (PicoComms* M);`    Gets the config object! Now you can do useful things like set PicoMsg's name, which it uses during error-reporting.
 
     struct PicoMessageConfig {
         const char* Name;
@@ -76,4 +63,9 @@ Flags can be these:
     PicoNoisyParent
     PicoNoisy               // combination of above
     PicoQuitWithParent      // if parent exits, we will auto disconnect.
+
+
+###
+
+Please support this work, by donating. Or perhaps buying some copper jewelry which I am making these days. You won't regret it!
 
