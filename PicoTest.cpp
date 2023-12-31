@@ -82,10 +82,10 @@ int main (int argc, const char * argv[]) {
 		if (PID < 0)
 			return PicoMsgErr(M);
 		if (!PID) {
-			PicoMsgConfig(M)->Name = "Respond";
+			M->Name = "Respond";
 			Respond(M);
 		} else {
-			PicoMsgConfig(M)->Name = "Query";
+			M->Name = "Query";
 			Query(M);
 		}
 		PicoMsgDestroy(M);

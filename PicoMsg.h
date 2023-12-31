@@ -1,10 +1,11 @@
 
 // picomsg
-// Simple parent-child IPC message-passing.
+// Simple parent-child message-passing.
 
 #ifndef __PICO_MSG__
 #define __PICO_MSG__
 
+#define PicoSilent 0
 #define PicoNoisyChild 1
 #define PicoNoisyParent 2
 #define PicoNoisy 3
@@ -12,7 +13,7 @@
 struct			PicoComms;
 // i guess we can free old sends... on get/send
 struct			PicoMessage			{ char* Data; int Length; int Remain; void* Owner; operator bool () {return Data;} };
-struct 			PicoMessageConfig	{ const char* Name;  int MaxSend;  int Flags; };
+struct 			PicoMessageConfig	{ const char* Name;  int LargestMsg;  int Noise; int TotalReceived; int TotalSent; };
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -41,6 +42,23 @@ using std::atomic_bool; using std::atomic_int;
 
 typedef void*   (*fpThread)		(void* Obj);
 static void*	pico_worker		(void* obj);
+
+static pthread_t					Thread;
+uint								MessagesReceived;
+
+
+struct PicoCommsData : PicoMessageConfig {
+// system	
+	short				Index;
+	short				Socket;
+	unsigned char		Err;
+	bool				IsParent;
+	pollfd				Poller;
+
+// msgs
+	uint				TotalSent;
+	PicoMessage			ReadMsg;	
+};
 
 
 struct PicoTrousers { // only one person can wear them at a time.
@@ -95,8 +113,7 @@ struct PicoCommList : PicoTrousers {
 //  |
 //  |
 //  v
-struct PicoQueue : PicoTrousers { //we have to move this code DOWN to get away from the spiders! 😠
-	uint				TotalCount;
+struct PicoQueue : PicoTrousers { // We have to move this code DOWN to get away from the spiders! 😠
 	deque<PicoMessage>	Items;
 	
 	PicoMessage Get () {
@@ -109,35 +126,23 @@ struct PicoQueue : PicoTrousers { //we have to move this code DOWN to get away f
 	}
 	
 	void Append (PicoMessage& Msg) {
-		TotalCount++;
 		lock();
  		Items.push_back(Msg);
 		unlock();
 	}
-};
+	
+	void Clear () {
+		for (auto& V: Items) 
+			free(V.Data);
+		Items.clear();
+	}
+}; 
 
-
-static pthread_t					Thread;
-uint								MessagesReceived;
 
 static void chill_a_bit () {
 	struct timespec ts = {0, 1000000};
 	nanosleep(&ts, 0);
 }
-
-
-struct PicoCommsData : PicoMessageConfig {
-// system	
-	short				Index;
-	short				Socket;
-	unsigned char		Err;
-	bool				IsParent;
-	pollfd				Poller;
-
-// msgs
-	uint				TotalSent;
-	PicoMessage			ReadMsg;	
-};
 
 
 struct PicoComms : PicoCommsData {
@@ -199,8 +204,8 @@ struct PicoComms : PicoCommsData {
 	}
 
 	void* Say (const char* A, const char* B="", int Iter=0, bool Strong=false) {
-		int Noise = PicoNoisyChild << IsParent;
-		if (!(Flags&Noise) and !Strong) return nullptr;
+		int F = PicoNoisyChild << IsParent;
+		if (!(Noise&F) and !Strong) return nullptr;
 		const char* S = IsParent?"Us":"Them";
 		
 		if (Iter)
@@ -213,21 +218,11 @@ struct PicoComms : PicoCommsData {
 	
 
 //// INTERNALS
-	void* disconnect (const char* why, bool Terminate=false) {
-		if (!Connected) return nullptr;
-		Connected = false;
-		if (Terminate) {
-			int CloseMsg = -1;
-			safe_send(&CloseMsg, 4);
-		}
-		return Say("Closed", why);
-	}
-
 	PicoComms* constructor (int flags) {
 		(*(PicoCommsData*)this) = {};
-		Flags = flags;
+		Noise = flags;
 		Name = "";
-		MaxSend = 1024*1024;
+		LargestMsg = 1024*1024;
 		return this;
 	}
 	
@@ -263,6 +258,23 @@ struct PicoComms : PicoCommsData {
 		Msg.Data = 0;
 		Msg.Length = -1;
 		return failed();
+	}
+	
+	void* disconnect (const char* why, bool Terminate=false) {
+		if (!Connected) return nullptr;
+		Connected = false;
+		if (Terminate) {
+			int CloseMsg = -1;
+			safe_send(&CloseMsg, 4);
+		}
+		return Say("Closed", why);
+	}
+
+	void destroy () {
+		DestroyMe = true;
+		disconnect("deleted");
+		if (Socket) // clears any stuck send/recv! :)
+			Socket = 0 & close(Socket);
 	}
 		
 	void* failed (int err=errno) {
@@ -304,7 +316,7 @@ struct PicoComms : PicoCommsData {
 		if (R == -1)
 			return disconnect("Graceful");
 		
-		if (R <= 0 or R > MaxSend)
+		if (R <= 0 or R > LargestMsg)
 			return failed(EDOM);
 
 		char* S = (char*)calloc(R+1, 1);
@@ -318,30 +330,29 @@ struct PicoComms : PicoCommsData {
 	void clean () {
 		if (!DestroyMe) return;
 		
-		Reading.lock();
-		Sending.lock();
 		PicoList.Remove(Index);
-		disconnect("delete");
-		if (Socket) close(Socket);
-		for (auto V: Gotten.Items) {
-			free(V.Data);
-		}
+		Reading.lock();
+		Gotten.Clear();
+		Sending.lock();
+		ToSend.Clear();
 		delete this;
 	}
 	
 	void slurp () {
-		if (!Reading.enter()) return;
-		while ( alloc_msg() and safe_read(ReadMsg) )
+		if (!Socket or !Reading.enter()) return;
+		while ( alloc_msg() and safe_read(ReadMsg) ) {
+			TotalReceived++;
 			Gotten.Append(ReadMsg);
+		}		// The final chance to read things before closing...
 		
-		// The final chance to read things before closing...
 		if (!Connected and Socket)
 			Socket = 0 & close(Socket);
 		Reading.unlock();
 	}
 		
-	void shoot() {
+	void shoot () {
 		if (!Connected or !Sending.enter()) return;
+		TotalSent++;
 		Sending.unlock();
 	}
 };
@@ -360,13 +371,12 @@ static float work_on_comms () {
 	for (int i = 0; auto M = PicoList[i]; i++)
 		M->clean();     // 🧹
 	
-	for (int i = 0; auto M = PicoList[i]; i++)
+	for (int i = 0; auto M = PicoList[i]; i++) {
 		M->slurp();     // 🥤
-	
-	for (int i = 0; auto M = PicoList[i]; i++)
 		M->shoot();     // 🏹 
+	}
 	
-	return 0.01;
+	return 0.001;
 }
 
 static void* pico_worker (void* obj) {
@@ -387,7 +397,7 @@ PicoComms* PicoMsg (int Flags=PicoNoisy)  _pico_code_ (
 )
 
 void PicoMsgDestroy (PicoComms* M) _pico_code_ (
-	if (M) M->DestroyMe = true;
+	if (M) M->destroy();
 )
 
 int PicoMsgFork (PicoComms* M) _pico_code_ (
@@ -410,12 +420,8 @@ int PicoMsgErr (PicoComms* M) _pico_code_ (
 	return M->Err;
 )
 
-void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0, bool Strong=true) _pico_code_ (
-	return M->Say(A, B, Iter, Strong);
-)
-
-PicoMessageConfig* PicoMsgConfig (PicoComms* M) _pico_code_ (
-	return M;
+void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0) _pico_code_ (
+	return M->Say(A, B, Iter, true);
 )
 
 #endif
