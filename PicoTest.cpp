@@ -1,6 +1,6 @@
 
 
-// some simple tests :)
+
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"
 #include <unistd.h>
@@ -10,7 +10,8 @@ using std::vector;
 
 
 void* Query (PicoComms* M) {
-	PicoMsgSay(M,"QA");
+	M->Name = "Query";
+	PicoMsgSay(M, "QA");
 	PicoMsgSend(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -54,6 +55,7 @@ void* Query (PicoComms* M) {
 
 
 void Respond (PicoComms* M) {
+	M->Name = "Respond";
 	sleep(1); // give it a chance to receive
 	auto Mary = PicoMsgGet(M);
 	if (Mary) {
@@ -75,24 +77,15 @@ void Respond (PicoComms* M) {
 
 
 int main (int argc, const char * argv[]) {
-	int PID = 0;
-	{
-		auto M = PicoMsg(PicoNoisy);
-		PID = PicoMsgFork(M);
-		if (PID < 0)
-			return PicoMsgErr(M);
-		if (!PID) {
-			M->Name = "Respond";
-			Respond(M);
-		} else {
-			M->Name = "Query";
-			Query(M);
-		}
-		PicoMsgDestroy(M);
-	}	
-		
+	auto M = PicoMsg(PicoNoisy);
+	int PID = PicoMsgFork(M);
+	if (PID < 0)
+		return PicoMsgErr(M);
+	if (PID)
+		Query(M);
+	  else
+		Respond(M);
+	PicoMsgDestroy(M);		
 	return 0;
 }
 
-
-//					dup2(FD, SavedParentIPC); // store it... so restarted processes can pick it up again.

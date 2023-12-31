@@ -273,7 +273,7 @@ struct PicoComms : PicoCommsData {
 	void destroy () {
 		DestroyMe = true;
 		disconnect("deleted");
-		if (Socket) // clears any stuck send/recv! :)
+		if (Socket) // clear stuck send/recv
 			Socket = 0 & close(Socket);
 	}
 		
