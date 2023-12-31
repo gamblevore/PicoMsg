@@ -29,7 +29,7 @@ These are the functions you need to use PicoMsg:
 | PicoComms* PicoMsg (int Flags=PicoNoisy)                    | Creates your message-passer. You use this for inter-process-communications (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout. |
 | int PicoMsgFork (PicoComms* M)                              | This will fork your app, and then connect the two apps with PicoMsg.                                                                                                |
 | void PicoMsgDestroy (PicoComms* M)                          | Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).                                                                                       |
-| bool PicoMsgSend (PicoComms* M, const void* data, int n=-1) | unimplemented                                                                                                                                                       |
+|`bool PicoMsgSend (PicoComms* M, const void* data, int n=-1)`| unimplemented                                                                                                                                                       |
 | PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0)      | Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.                                                    |
 
     struct PicoMessage {
