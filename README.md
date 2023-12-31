@@ -3,7 +3,7 @@
 
 I created PicoMsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
 
-PicoMsg is simpler and smaller than nanomsg and zeromq, at under 500 lines of C++ code (and a lot of that is headers, structs, etc.)
+PicoMsg is simpler and smaller than nanomsg and zeromq, at around 400 lines of C++ code.
 
 PicoMsg is so small it could be part of the standard unix distribution... included into the StdCLib and Linus himself will give me $1000001!
 
