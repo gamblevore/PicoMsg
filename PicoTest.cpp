@@ -27,7 +27,7 @@ void* Query (PicoComms* M) {
 		int n = rand() % Pudge;
 		if (n > Remain) n = Remain;
 		Remain -= n;
-		Sent.push_back({n, 0, abc});
+		Sent.push_back({abc, n});
 		PicoMsgSend(M, abc, n);
 		abc += n;
 	}

@@ -1,9 +1,7 @@
 # PicoMsg
+**Miniature Message Passing IPC System (Single Header C++ File)**
 
-Miniature Message Passing IPC System (Single Header C++ File).
-
-
-I made picomsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
+I created PicoMsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
 
 Simpler and smaller than nanomsg and zeromq.
 
@@ -40,7 +38,7 @@ These are the functions you need to use PicoMsg:
 
 This is what you get back. Ignore the "`Remain`" field you don't need it. This gives you the `Length` of the data, and the `Data` itself. `Data` is allocated with `malloc` and you have to `free` it after.
 
-If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
+If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders. Also have a look at the new for-loop I invented. Quite funny I've never seen this being done!
 
 ### Utils
 
