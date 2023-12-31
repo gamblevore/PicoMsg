@@ -1,6 +1,6 @@
 # picomsg
 
-Miniature Message Passing for IPC - Single Header C++
+Miniature Message Passing IPC System (Single Header C++ File).
 
 
 I made picomsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
