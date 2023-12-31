@@ -1,4 +1,4 @@
-# picomsg
+# PicoMsg
 
 Miniature Message Passing IPC System (Single Header C++ File).
 
@@ -40,6 +40,7 @@ These are the functions you need to use PicoMsg:
 
 This is what you get back. Ignore the "`Remain`" field you don't need it. This gives you the `Length` of the data, and the `Data` itself. `Data` is allocated with `malloc` and you have to `free` it after.
 
+If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
 
 ### Utils
 
