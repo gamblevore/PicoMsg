@@ -12,7 +12,7 @@ using std::vector;
 void* Query (PicoComms* M) {
 	M->Name = "Query";
 	PicoMsgSay(M, "QA");
-	PicoMsgSend(M, "mary had a little lamb");
+	PicoMsgCSend(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
@@ -29,7 +29,7 @@ void* Query (PicoComms* M) {
 		if (n > Remain) n = Remain;
 		Remain -= n;
 		Sent.push_back({abc, n});
-		PicoMsgSend(M, abc, n);
+		PicoMsgSend(M, {abc, n});
 		abc += n;
 	}
 	
@@ -64,23 +64,22 @@ void Respond (PicoComms* M) {
 	}
 	
 	while (!PicoMsgErr(M)) {
-		auto OK = PicoMsgGet(M, 10.0);
-		if (!OK) break;
+		auto Msg = PicoMsgGet(M, 10.0);
+		if (!Msg) break;
 
-		for (int i = 0; i < OK.Length; i++) {
-			(OK.Data)[i]++;
+		for (int i = 0; i < Msg.Length; i++) {
+			(Msg.Data)[i]++;
 		}
-		PicoMsgSend(M, OK.Data, OK.Length);
-		free(OK.Data); // or store it in the msg?
+		PicoMsgSend(M, Msg); // send will "own" the malloc'd data in Msg
 	}
 }
 
 
 int main (int argc, const char * argv[]) {
-	auto M = PicoMsg(PicoNoisy);
+	auto M = PicoMsgComms(PicoNoisy);
 	int PID = PicoMsgFork(M);
 	if (PID < 0)
-		return PicoMsgErr(M);
+		return -PID;
 	if (PID)
 		Query(M);
 	  else

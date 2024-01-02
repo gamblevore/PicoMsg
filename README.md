@@ -3,7 +3,7 @@
 
 I created PicoMsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
 
-PicoMsg is simpler and smaller than nanomsg and zeromq, at around 400 lines of C++ code.
+PicoMsg is simpler and smaller than nanomsg and zeromq, at around 500 lines of C++ code.
 
 PicoMsg is so small it could be part of the standard unix distribution... included into the StdCLib and Linus himself will give me $1000001!
 
@@ -26,7 +26,7 @@ These are the functions you need to use PicoMsg:
 
 | Function                                                    | Description                                                                                                                                                         |
 |-------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| PicoComms* PicoMsg (int Flags=PicoNoisy)                    | Creates your message-passer. You use this for inter-process-communications (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout. |
+| PicoComms* PicoMsgCreate (int Flags=PicoNoisy)              | Creates your message-passer. You use this for inter-process-communications (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout. |
 | int PicoMsgFork (PicoComms* M)                              | This will fork your app, and then connect the two apps with PicoMsg.                                                                                                |
 | void PicoMsgDestroy (PicoComms* M)                          | Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).                                                                                       |
 | bool PicoMsgSend (PicoComms* M, const void* data, int n=-1) | unimplemented                                                                                                                                                       |
