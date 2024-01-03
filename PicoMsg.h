@@ -33,6 +33,7 @@ struct 			PicoMessageConfig    { const char* Name;  int LargestMsg;  int Noise; 
 	#include <csignal>
 	#include <atomic>
 	#include <deque>
+	#include <algorithm>
 
 #ifndef PicoMaxConnections
 	#define PicoMaxConnections 16
@@ -59,12 +60,15 @@ static void* pico_worker (void* obj);
 static pthread_t PicoThreads[2];
 
 
-typedef int64_t PicoDate; // 20 bits for small stuff
-PicoDate PicoGetDate () {
-	timespec Now; clock_gettime(CLOCK_REALTIME, &Now);
-	int64_t r = Now.tv_nsec*4398;
-	r >>= 22;
-	return r | (Now.tv_nsec << 20);
+typedef int64_t PicoDate; // 16 bits for small stuff
+PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
+    NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
+    S <<= 16;
+    return S + NS;
+}
+PicoDate PicoGetDate( ) {
+	timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+	return pico_date_create(ts.tv_sec, ts.tv_nsec);
 }
 
 
@@ -121,7 +125,7 @@ struct PicoCommList : PicoTrousers {
 	PicoComms* operator [] (int i) {
 		lock();
 		auto P = Items[i];
-		P->RefCount++;
+		if (P) P->RefCount++;
 		unlock();
 		return (PicoComms*)P;
 	}
@@ -142,12 +146,18 @@ struct PicoQueue { // We have to move this code DOWN to get away from the spider
 	PicoTrousers		IsOpen;			// allow for read after they disconnect
 	atomic_int			BlockedAlerts;
 	atomic_int			Limit;
-	PicoDataGram		Msg;	
+	PicoDataGram		Msg;
+	const char*			Name;
 
 	deque<PicoMessage>	Items;
 	
-	PicoQueue () {Limit=0; BlockedAlerts=0; IsOpen=true;}
-		
+	PicoQueue () {Limit=0; BlockedAlerts=0; IsOpen=true; Msg = {}; Name = ""; }
+	~PicoQueue () {
+		pico_burn_msg(Msg.M);
+		for (auto& V: Items) 
+			pico_burn_msg(V);
+	}
+	
 	PicoMessage Get () {
 		PicoMessage Msg = {};
 		Altering.lock();
@@ -160,20 +170,8 @@ struct PicoQueue { // We have to move this code DOWN to get away from the spider
 		return Msg;
 	}
 	
-	bool Reserve (int N) {
-		int L = Limit - PicoOverHead(N);
-		if (L < 0) return false;
-		Limit = L;
-		return true;
-	}
-		
 	void Append (PicoMessage& Msg) {
  		Items.push_back(Msg);
-	}
-	
-	void Burn () {
-		for (auto& V: Items) 
-			pico_burn_msg(V);
 	}
 }; 
 
@@ -185,48 +183,48 @@ struct PicoComms : PicoCommsBase {
 	int					Socket;
 	unsigned char		Err;
 	bool				IsParent;
+	int					LengthBuff;
 
 	PicoQueue			Reading;
 	PicoQueue			Sending;
 	
-	PicoComms* Constructor (int noise) {
-		Socket = 0; Err = 0; IsParent = 0; Conf.Name = "";
+	PicoComms (int noise, bool isparent) {
+		Socket = 0; Err = 0; IsParent = isparent; Conf.Name = "";
 		Conf.Noise = noise;
-		Sending.Limit = 16*1024*1024;
-		Reading.Limit = 16*1024*1024;
+		Sending.Limit = 16*1024*1024; Sending.Name = "send";
+		Reading.Limit = 16*1024*1024; Reading.Name = "read";
 		Conf.LargestMsg = 1024*1024;
 		RefCount = 1;
-		return this;
 	}
 //
+	PicoComms* Pair () {
+		int Socks[2] = {};
+		if (!get_pair_of(Socks)) return 0;
+		PicoComms* Rz = new PicoComms(Conf.Noise, false);
+		add_conn(Socks[0]);
+		Rz->add_conn(Socks[1]);
+		return Rz;
+	}
+
 	pid_t Fork () {
-		int Socks[2] = {}; pid_t pid;
-		if (socketpair(PF_LOCAL, SOCK_STREAM, 0, Socks)  or  (pid = fork()) < 0) {
-			close(Socks[0]); close(Socks[1]);
-			return !!failed() - errno;
-		}
-		
+		int Socks[2] = {};
+		if (!get_pair_of(Socks)) return -errno;
+		pid_t pid = fork();
+		if (pid < 0) return -errno;
+
 		IsParent = pid!=0;
-		Socket = Socks[IsParent];
 		close(Socks[!IsParent]);
-		
-		if (!start_thread(&PicoThreads[0]) /*or start_thread((PicoThread2)*/) return -errno;
-		
-		PicoList.AddCom(this);
-		Say("Started");
-		
+		add_conn(Socks[IsParent]);
 		return pid; 
 	}
 	
 	bool QueueSend (PicoMessage M, bool Prefixed) {
-		if (!M.Data or !send_reserve(M.Length))
+		if (!M.Data or !own_msg(M) or !send_reserve(M.Length) )
 			return pico_burn_msg(M);
-		
-		if (M.NoAutoFree and !own_msg(M)) return false; // must copy... sadly.
 		
 		if (Prefixed)
 			*((int*)(M.Data)) = htonl(M.Length-4);
-		PicoMessage Length = {0, M.Length, 1};
+		PicoMessage Length = {(char*)&LengthBuff, 4, 1};
 
 		Sending.Altering.lock();
 		if (!Prefixed)
@@ -238,13 +236,15 @@ struct PicoComms : PicoCommsBase {
 
 	PicoMessage Get (float T = 0.0) {
 		PicoMessage M = Reading.Get();
-		if (!M and T > 0) {
-			PicoDate Final = PicoGetDate() + T*(1024.0*1024.0);
-			for (int i = 0;  !M and i < 10000;    i++) {
-				auto Curr = PicoGetDate();
-				if (Curr > Final) break;
-				M = Reading.Get();
-			}
+		if (M or T <= 0) return M;
+		PicoDate Final = PicoGetDate() + (PicoDate)(T*65536.0f);
+		timespec ts = {0, 1000000};
+		int n = T*16000; int i = 0;
+		for (;  !M and i < n;    i++) {
+			nanosleep(&ts, 0);
+			PicoDate Curr = PicoGetDate();
+			if (Curr > Final) break;
+			M = Reading.Get();
 		}
 		return M;
 	}
@@ -264,24 +264,30 @@ struct PicoComms : PicoCommsBase {
 	
 
 //// INTERNALS ////
-	bool start_thread (pthread_t* T) {
-		if (*T) return true;
-		if (pthread_create(T, 0, pico_worker, 0) or pthread_detach(*T))
-			return failed();
-		return true;
-	}
 
+	bool get_pair_of (int* P) {
+		if (!socketpair(PF_LOCAL, SOCK_STREAM, 0, P)) return true;
+		puts("closed!!");
+		return failed();
+	}
+	
+	void add_conn (int Sock) {
+		Socket = Sock;
+		PicoList.AddCom(this);
+		Say("Started");
+	}
+	
 	bool safe_read (PicoDataGram& Msg, int Flags=0) {
 		while (Msg.Remain > 0) {
-			int Sent = (int)recv(Socket, Msg.M.Data, Msg.Remain, Flags|MSG_DONTWAIT|MSG_NOSIGNAL);
-			if (Sent > 0) {
-				Msg.Remain -= Sent;
-				Msg.M.Length += Sent;
+			int Got = (int)recv(Socket, Msg.M.Data, Msg.Remain, Flags|MSG_DONTWAIT|MSG_NOSIGNAL);
+			if (Got > 0) {
+				Msg.Remain -= Got;
+				Msg.M.Length += Got;
 				if (Msg.Remain == 0)						return true;	// success
-				Msg.M.Data += Sent;
+				Msg.M.Data += Got;
 			} else {
 				int e = errno;
-				if (!Sent or e == EAGAIN)					return false;	// no datas
+				if (!Got or e == EAGAIN)					return false;	// no datas
 				if (e != EINTR)								break;			// error
 																			// try again now
 			}
@@ -291,21 +297,31 @@ struct PicoComms : PicoCommsBase {
 		return failed();
 	}
 
+	bool queue_reserve (PicoQueue& Q, int N) {
+		int L = Q.Limit - PicoOverHead(N);
+		if (L >= 0) {Q.Limit = L; return true;};
+
+		if (Q.BlockedAlerts++ < 8)
+			Say("Message Queue Full", Q.Name);
+		Q.BlockedAlerts = 0; 
+		return false;
+	}
+		
 	inline bool own_msg (PicoMessage& M) {
+		if (!M.NoAutoFree) return true;
 		char* D = (char*)malloc(M.Length);
-		if (!D) {
-			Sending.Reserve(-M.Length);
+		if (!D)
 			return failed(ENOBUFS);
-		}
 		memcpy(D, M.Data, M.Length);
 		M.Data = D;
+		M.NoAutoFree = 0;
 		return true;
 	}
 	
 	bool send_reserve (int n) {
 		if (n <= 0)			 return false;
 		if (!Sending.IsOpen) return Say("Socket Is Closed");
-		return Sending.Reserve(n) or got_backed_up(Sending, n, "send");
+		return queue_reserve(Sending, n);
 	}
 
 	void send_close () {
@@ -316,6 +332,8 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	void* disconnect (const char* Why, bool SendClose=true) {
+		pico_burn_msg(Sending.Msg.M);
+		pico_burn_msg(Reading.Msg.M);
 		if (!Sending.IsOpen) return nullptr;
 		if (!Err)
 			Err = ENOTCONN;
@@ -328,6 +346,7 @@ struct PicoComms : PicoCommsBase {
 	void destroy () {
 		Reading.IsOpen = false;
 		disconnect("deleted");
+		puts("destroyed!!");
 		if (Socket) // clear stuck send/recv
 			Socket = close(Socket)*0;
 		if (Index >= 0)
@@ -335,46 +354,37 @@ struct PicoComms : PicoCommsBase {
 		Index = -1;
 		Decr();
 	}
-	
-	~PicoComms () {
-		Reading.Burn();
-		Sending.Burn();
-	}
 			
 	void* failed (int err=errno) {
 		Err = err;
 		return disconnect(strerror(err));
 	}
 		
-	bool got_backed_up(PicoQueue& Q, int N, const char* op) {
-		if (Q.BlockedAlerts++ < 8)
-			Say("Message Queue Full", op);
-		Q.BlockedAlerts = 0; 
-		return false;
-	}
-	
 	bool alloc_msg () {
 		int R = Reading.Msg.Remain;
 		if (R > 0) return true;
 		
-		PicoDataGram Header = {(char*)(&R), 0, 1, R};
-		if (!safe_read(Header, MSG_PEEK) or Reading.Reserve(R))
-			return got_backed_up(Reading, R, "read");
-
-		recv(Socket, &R, 4, MSG_NOSIGNAL|MSG_DONTWAIT); // discard
-
+		PicoDataGram Header = {(char*)(&R), 0, true, 4};
+		if (!safe_read(Header, MSG_PEEK)) return false;
+		
 		R = ntohl(R);
+		Say("Read", "", R);
+		char Garbage[4]; auto G = recv(Socket, Garbage, 4, MSG_NOSIGNAL|MSG_DONTWAIT); // discard
+		Say("Grbg", "", (int)G);
 		if (R == -1)
 			return disconnect("Graceful", false);
 		
+		if (!queue_reserve(Reading, R))
+			return false;
 		if (R <= 0 or R > Conf.LargestMsg)
 			return failed(EDOM);
 
-		char* S = (char*)calloc(R+1, 1);
+		char* S = (char*)malloc(R+1);
 		if (!S)
 			return failed(ENOBUFS);
+		S[R] = 0;
 		
-		Reading.Msg.M = {S, 0, true};
+		Reading.Msg.M = {S};
 		Reading.Msg.Remain = R;
 		return true;
 	}
@@ -387,34 +397,39 @@ struct PicoComms : PicoCommsBase {
 			Reading.Altering.unlock();
 		}
 		
-		if (!Sending.IsOpen and Socket)
-			Socket = 0 & close(Socket);
+		if (!Sending.IsOpen and Socket) // deliberately on Sending, not Reading here. By design.
+			Socket = 0 & close(Socket) & puts("slurp died!!");
 		Reading.IO.unlock();
 	}
 
 	bool safe_send () {
-		if (Sending.Msg.Remain <= 0) {
-			Sending.Msg.M = Sending.Get();
-			Sending.Msg.Remain = 0;
+		auto& M = Sending.Msg;
+		if (M.Remain <= 0) {
+			M.M = Sending.Get();
+			if (!M.M.Data) return false;
+			M.Remain = M.M.Length;
+			M.M.Length = 0;
+			LengthBuff = htonl(M.Remain);
+//			M.M = M.M;
 		}
 		
-		while (Sending.IsOpen and Sending.Msg.Remain > 0) {
-			const char* data = Sending.Msg.M.Data + Sending.Msg.M.Length;
-			int Sent = (int)send(Socket, data, Sending.Msg.Remain, MSG_NOSIGNAL|MSG_DONTWAIT);
+		while (Sending.IsOpen and M.Remain > 0) {
+			const char* data = M.M.Data + M.M.Length;
+			int Sent = (int)send(Socket, data, M.Remain, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Sent > 0) {
-				Sending.Msg.Remain   -= Sent;
-				Sending.Msg.M.Length += Sent;
-				if (Sending.Msg.Remain <= 0)				break;	// success
+				M.Remain   -= Sent;
+				M.M.Length += Sent;
+				if (M.Remain <= 0)							break;	// success
 				data += Sent;
 			} else {
 				int e = errno;
 				if (!Sent or (Sent < 0 and e==EAGAIN))		return false;	// would block
 				if (Sent < 0 and e==EINTR)					continue;		// try again
-				return failed();											// error
+				return failed(e);											// error
 			}
 		}
 		
-		return !pico_burn_msg(Sending.Msg.M);
+		return !pico_burn_msg(M.M);
 	}
 
 	void shoot () {
@@ -425,31 +440,37 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	void work () {
-		slurp(); shoot(); Decr();
+		slurp(); shoot(); Decr(); 
 	}
 };
 
 
 static PicoDate PicoLastActivity;
-static int work_on_comms () {
-	sleep(1000);
+static float work_on_comms () {
 	for (int i = 0; auto M = PicoList[i]; i++)
 		M->work();
 	
-	const float NS = 1000000000.0;
-	const float mul = 1.0 / (1024 * 1024 * 1024);
-	float S = (PicoGetDate() - PicoLastActivity) * mul;
-	S = S * S * (1.0 / 20000.0);
-	if (S < 0.001) return (int)(0.001*NS);
-	if (S >= 1.0) return (int)(0.999*NS);
-	return (int)(S*NS);
+	float S = (PicoGetDate() - PicoLastActivity) * 0.000015258789f;
+	return std::clamp(S * S * 0.00005f, 0.001f, 0.999f) * 1000000000.0f;
 }
 
 static void* pico_worker (void* T) {
 	while (true) {
-		timespec ts = {0, work_on_comms()};
+		timespec ts = {0, (int)work_on_comms()};
 		nanosleep(&ts, 0);
 	}
+}
+
+bool pico_start () {
+	if (PicoList.Count >= PicoMaxConnections)
+		return puts("Pico: Too many threads.")*0;
+	if (PicoThreads[0]) return true;
+	for (int i = 0; i < 1; i++) {
+		auto T = &PicoThreads[i];
+		if (pthread_create(T, 0, pico_worker, 0) or pthread_detach(*T))
+			return puts("Pico: Unable to create threads.")*0;
+	}
+	return true;
 }
 
 #endif
@@ -458,9 +479,8 @@ static void* pico_worker (void* T) {
 
 /// C-API ///
 extern "C" PicoComms* PicoMsgComms (int Noise=PicoNoisy)  _pico_code_ (
-	if (PicoList.Count >= PicoMaxConnections)
-		return nullptr;
-	return (new PicoComms)->Constructor(Noise);
+	if (!pico_start()) return nullptr;
+	return new PicoComms(Noise, true);
 )
 
 extern "C" void PicoMsgDestroy (PicoComms* M) _pico_code_ (
@@ -483,7 +503,7 @@ extern "C" bool PicoMsgSend (PicoComms* M, PicoMessage Msg, bool Prefixed=false)
 	return M->QueueSend(Msg, Prefixed);
 )
 
-extern "C" bool PicoMsgCSend (PicoComms* M, const char* Str) _pico_code_ (
+extern "C" bool PicoMsgSendStr (PicoComms* M, const char* Str) _pico_code_ (
 	PicoMessage Msg = {(char*)Str}; Msg.Length = (int)strlen(Str)+1; Msg.NoAutoFree = 1;
 	return M->QueueSend(Msg, false);
 )

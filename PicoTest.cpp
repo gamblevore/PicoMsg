@@ -12,8 +12,9 @@ using std::vector;
 void* Query (PicoComms* M) {
 	M->Conf.Name = "Query";
 	PicoMsgSay(M, "Sending");
-	PicoMsgCSend(M, "mary had a little lamb");
+	PicoMsgSendStr(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
+	while (1) sleep(1000);
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
 		abcd[i] = rand();
@@ -75,16 +76,35 @@ void Respond (PicoComms* M) {
 }
 
 
-int main (int argc, const char * argv[]) {
-	auto M = PicoMsgComms(PicoNoisy);
-	int PID = PicoMsgFork(M);
+int TestPair() {
+	auto C = PicoMsgComms(PicoNoisy);
+	auto C2 = C->Pair(); if (!C2) return errno;
+	 
+	PicoMsgSendStr(C, "pear🍐🍐🍐test");
+	auto Msg = PicoMsgGet(C, 10.0);
+	if (!Msg.Data) Msg.Data = (char*)"failed get";
+	puts(Msg.Data);
+	PicoMsgDestroy(C);
+	return 0;	
+}
+
+int TestThread() {
+	auto C = PicoMsgComms(PicoNoisy);
+	int PID = PicoMsgFork(C);
 	if (PID < 0)
 		return -PID;
 	if (PID)
-		Query(M);
+		Query(C);
 	  else
-		Respond(M);
-	PicoMsgDestroy(M);		
-	return 0;
+		Respond(C);
+	PicoMsgDestroy(C);
+	return 0;	
+}
+
+int main (int argc, const char * argv[]) {
+	if (strcmp(argv[0], "thread")!=0)
+		return TestPair();
+	  else
+		return TestThread();
 }
 
