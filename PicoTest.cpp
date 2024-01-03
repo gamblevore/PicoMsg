@@ -10,8 +10,8 @@ using std::vector;
 
 
 void* Query (PicoComms* M) {
-	M->Name = "Query";
-	PicoMsgSay(M, "QA");
+	M->Conf.Name = "Query";
+	PicoMsgSay(M, "Sending");
 	PicoMsgCSend(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -37,10 +37,10 @@ void* Query (PicoComms* M) {
 		abcd[i] ++;
 	}
 
-	PicoMsgSay(M, "QC");
-	sleep(2); // give it a chance to receive
+	PicoMsgSay(M, "Comparing");
+
 	for (auto v: Sent) {
-		auto OK = PicoMsgGet(M, 1.0);
+		auto OK = PicoMsgGet(M, 5.0);
 		if (!OK)								return 0;
 		if (OK.Length != v.Length)				return PicoMsgSay(M, "bad length");
 		int diff = memcmp(v.Data, OK.Data, v.Length);
@@ -55,7 +55,7 @@ void* Query (PicoComms* M) {
 
 
 void Respond (PicoComms* M) {
-	M->Name = "Respond";
+	M->Conf.Name = "Respond";
 	sleep(1); // give it a chance to receive
 	auto Mary = PicoMsgGet(M);
 	if (Mary) {
