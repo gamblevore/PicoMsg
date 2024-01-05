@@ -99,7 +99,6 @@ struct PicoRange {
 	int Length () {return Range&0xFFFFffff;}
 	int Start () {return Range>>32;}
 	void Set (uint64_t Start, uint64_t Length) {Range = (Start<<32)|Length;}
-	operator bool () {return Length();}
 };
 
 
@@ -122,7 +121,8 @@ struct PicoCommList : PicoTrousers {
 		Items[i] = Items[n];
 		Items[n] = 0;
 		Count = n;
-		P->RefCount--;
+		if (P)
+			P->RefCount--;
 		unlock();
 	}
 	
@@ -151,9 +151,9 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 	atomic_uint64_t		Range;
 	int					Size;
 	PicoTrousers		IO;
-	PicoTrousers		IsOpen;			// allow for read after they disconnect
+	atomic_bool			IsOpen;			// allow for read after they disconnect
 	
-	PicoBuff () {IsOpen=true; Name = ""; SectionStart = 0; Size = 0;}
+	PicoBuff () {IsOpen=true; Name = ""; SectionStart = 0; Size = 0; Range = 0;}
 	
 	bool Alloc (int n, const char* name) {
 		Name = name;
@@ -191,7 +191,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 		if (S >= Size)
 			S = 0;
 		R.Set(S, L);
-		Range = R;
+		Range = R.Range;
 		IO.unlock();
 	}
 	
@@ -202,7 +202,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 		IO.lock();
 		auto R = PicoRange(Range); 
 		R.Set(R.Start(), R.Length() + N);
-		Range = R;
+		Range = R.Range;
 		IO.unlock();
 	}
 
@@ -229,9 +229,10 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 		if (L >= M) return {};
 		auto S = R.Start();
 		auto FromPos = L + S;
-		if (FromPos >= M)
+		if (FromPos >= M) {
 			FromPos -= M;
 			M = S;
+		}
 		
 		return {SectionStart + FromPos, M - FromPos};
 	}
@@ -243,6 +244,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 			Dest += B;
 			N -= B;
 			Lost(B);
+			if (N <= 0) break;
 		}
 		return true;
 	}
@@ -297,7 +299,7 @@ struct PicoComms : PicoCommsBase {
 		if (M or T <= 0) return M;
 		PicoDate Final = PicoGetDate() + (PicoDate)(T*65536.0f);
 		timespec ts = {0, 1000000}; int n = T*16000;
-		for ( int i = 0;  !M and i < n;    i++) {
+		for ( int i = 0;  !M and i < n;   i++) {
 			nanosleep(&ts, 0);
 			if (PicoGetDate() > Final) break;
 			M = get_sub();
@@ -333,9 +335,14 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	void do_sending () {
+		if (!Sending.IsOpen) {
+			Socket = close(Socket)&0;
+			return;
+		}
+				
 		while ( auto Msg = Sending.AskUsed() ) {
 			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
-			if (Amount > 0)
+  			if (Amount > 0)
 				Sending.Lost(Amount);
 			  else if (!io_pass(Amount))
 				break;
@@ -349,15 +356,17 @@ struct PicoComms : PicoCommsBase {
 		if (!L) {
 			if (Reading.Length() < 4) return {};
 			Reading.Get((char*)&LengthBuff, 4);
-			L = LengthBuff; 
-			if (!L) {              // Length==0 --> CloseGraceful
+			L = ntohl(LengthBuff); 
+			if (L == -1 or L == 0) {              // Length==0 --> CloseGraceful
 				LengthBuff = -1;
 				return nothing(disconnect("graceful", false));
 			}
 		}
 			
-		if (L < 0)
+		if (L < 0) {
+			if (L == -1) return {};
 			return nothing(failed(EILSEQ));
+		}
 
 		if (Reading.Length() < L) return {};
 		char* Data = (char*)malloc(L);
@@ -408,18 +417,15 @@ struct PicoComms : PicoCommsBase {
 	bool io_pass (int Amount) {
 		if (!Amount) return false;
 		int e = errno;
-		if (e == EINTR)  return true;
 		if (e == EAGAIN) return false;
+		if (e == EINTR)  return true;
 		return failed(e);
 	}
 	
 	void io () {
-		if (Socket)
+		if (Socket) {
 			do_reading();
-		if (Sending.IsOpen and Sending.Length()) {
 			do_sending();
-		} else if (Socket) {
-			Socket = close(Socket)&0;
 		}
 		Decr(); 
 	}
