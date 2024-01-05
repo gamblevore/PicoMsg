@@ -160,7 +160,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 */
 	
 	
-	// Sync:  .AskEmpty + .Lost   with   .Append
+	// Sync:  .AskEmpty + .Lost   with   .Append(.askfill + .Gained)
 	PicoMessage AskEmpty () {
 		auto L = Length;
 		if (!L) return {};
@@ -197,7 +197,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 		return false;
 	}
 	
-	/////// sync:  .AskFill + .Gained   with   .Get
+	/////// sync:  .AskFill + .Gained   with   .Get(.askempty + .Lost)
 	PicoMessage AskFill () {
 		auto L = Length;
 		auto S = Start;
@@ -221,7 +221,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 	bool Get (char* Dest, int N) {
 		if (Length < N)
 			return false;
-		if (Dest) while (auto Msg = AskEmpty()) {
+		while (auto Msg = AskEmpty()) {
 			int B = std::min(Msg.Length, N);
 			memcpy(Dest, Msg.Data, B);
 			Dest += B;
@@ -234,19 +234,18 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 
 
 
-static char PicoCloseData[4] = {-1,-1,-1,-1};
+static char PicoCloseData[4] = {};
 
 struct PicoComms : PicoCommsBase {
-	int					Socket;
+	pollfd				Poller;
 	unsigned char		Err;
 	bool				IsParent;
 	int					LengthBuff;
-
 	PicoBuff			Reading;
 	PicoBuff			Sending;
 	
 	PicoComms (int noise, bool isparent) {
-		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; Conf.Name = isparent?"Parent":"Child";
+		RefCount = 1; Poller = {0, POLLIN}; Err = 0; IsParent = isparent; Conf.Name = isparent?"Parent":"Child";
 		Conf.Noise = noise;
 		if (!Sending.Alloc(1024*1024, "send") or !Reading.Alloc(1024*1024, "read"))
 			failed(ENOBUFS);
@@ -281,8 +280,8 @@ struct PicoComms : PicoCommsBase {
 		PicoMessage M = get_sub();
 		if (M or T <= 0) return M;
 		PicoDate Final = PicoGetDate() + (PicoDate)(T*65536.0f);
-		timespec ts = {0, 1000000}; int n = T*16000; int i = 0;
-		for (;  !M and i < n;    i++) {
+		timespec ts = {0, 1000000}; int n = T*16000;
+		for ( int i = 0;  !M and i < n;    i++) {
 			nanosleep(&ts, 0);
 			if (PicoGetDate() > Final) break;
 			M = get_sub();
@@ -306,10 +305,10 @@ struct PicoComms : PicoCommsBase {
 
 
 //// INTERNALS ////
-
+	
 	void do_reading () {
 		while ( auto Msg = Reading.AskFill() ) {
-			int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+			int Amount = (int)recv(Poller.fd, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount > 0)
 				Reading.Gained(Amount);
 			  else if (!io_pass(Amount))
@@ -321,7 +320,7 @@ struct PicoComms : PicoCommsBase {
 	
 	void do_sending () {
 		while ( auto Msg = Sending.AskEmpty() ) {
-			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+			int Amount = (int)send(Poller.fd, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount > 0)
 				Sending.Lost(Amount);
 			  else if (!io_pass(Amount))
@@ -331,28 +330,39 @@ struct PicoComms : PicoCommsBase {
 		Sending.IO.unlock();
 	}
 	
+	PicoMessage nothing (void* nuffing) {return {};}
+
 	PicoMessage get_sub () {
-		int Length = 0;
-		if (Reading.Get((char*)&Length, 4)) {
-			if (Reading.Get(0, Length)) {
-				char* Data = (char*)malloc(Length);
-				if (Data) {
-					Reading.Get(Data, Length);
-					return {Data, Length};
-				}
-				failed(ENOBUFS);
+		int L = LengthBuff; 
+		if (!L) {
+			if (Reading.Length < 4) return {};
+			Reading.Get((char*)&LengthBuff, 4);
+			L = LengthBuff; 
+			if (!L) {              // Length==0 --> CloseGraceful
+				LengthBuff = -1;
+				return nothing(disconnect("graceful", false));
 			}
 		}
-		return {};
+			
+		if (L < 0)
+			return nothing(failed(EILSEQ));
+
+		if (Reading.Length < L) return {};
+		char* Data = (char*)malloc(L);
+		if (Data) {
+			Reading.Get(Data, L);
+			LengthBuff = 0;
+			return {Data, L};
+		}
+		return nothing(failed(ENOBUFS));
 	}
 	
 	bool get_pair_of (int* Socks) {
-		if (!socketpair(PF_LOCAL, SOCK_STREAM, 0, Socks)) return true;
-		return (bool)failed() * puts("closed!!");
+		return  socketpair(PF_LOCAL, SOCK_STREAM, 0, Socks)==0  or  failed();
 	}
 	
 	void add_conn (int Sock) {
-		Socket = Sock;
+		Poller.fd = Sock;
 		PicoList.AddCom(this);
 		Say("Started");
 	}
@@ -370,9 +380,8 @@ struct PicoComms : PicoCommsBase {
 	void destroy () {
 		Reading.IsOpen = false;
 		disconnect("deleted");
-		puts("destroyed!!");
-		if (Socket) // clear stuck send/recv
-			Socket = close(Socket)*0;
+		if (Poller.fd) // clear stuck send/recv
+			Poller.fd = close(Poller.fd)&0;
 		if (Index >= 0)
 			PicoList.Remove(Index);
 		Index = -1;
@@ -393,12 +402,15 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	void io () {
-		if (Socket and Reading.IO.enter())
-			do_reading();
-		if (Sending.IsOpen and Sending.IO.enter())
-			do_sending();
-		  else if (Socket)
-			Socket = 0 & close(Socket) & puts("io died!!");
+		if (Poller.fd)
+			if (poll(&Poller, 1, 0) > 0  and  Reading.IO.enter())
+				do_reading();
+		if (Sending.IsOpen) {
+			if (Sending.Length and Sending.IO.enter())
+				do_sending();
+		} else if (Poller.fd) {
+			Poller.fd = close(Poller.fd)&0;
+		}
 		Decr(); 
 	}
 };
@@ -424,12 +436,12 @@ static void* pico_worker (void* T) {
 bool pico_start () {
 	if (PicoList.Count >= PicoMaxConnections)
 		return puts("Pico: Too many threads.")*false;
-	if (PicoThreads[0]) return true;
-	for (int i = 0; i < 1; i++) {
-		auto T = &PicoThreads[i];
-		if (pthread_create(T, 0, pico_worker, 0) or pthread_detach(*T))
-			return puts("Pico: Unable to create threads.")*false;
-	}
+	if (!PicoThreads[0])
+		for (int i = 0; i < 1; i++) {
+			auto T = &PicoThreads[i];
+			if (pthread_create(T, 0, pico_worker, 0) or pthread_detach(*T))
+				return puts("Pico: Unable to create threads.")*false;
+		}
 	return true;
 }
 
