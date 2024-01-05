@@ -14,7 +14,6 @@ void* Query (PicoComms* M) {
 	PicoMsgSay(M, "Sending");
 	PicoMsgSendStr(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
-	sleep(1000);
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
 		abcd[i] = rand();
@@ -57,10 +56,9 @@ void* Query (PicoComms* M) {
 
 void Respond (PicoComms* M) {
 	M->Conf.Name = "Respond";
-	sleep(1); // give it a chance to receive
-	auto Mary = PicoMsgGet(M);
+	auto Mary = PicoMsgGet(M, 5.0);
 	if (Mary) {
-		puts(Mary.Data);
+		PicoMsgSay(M, "Received", Mary.Data);
 		free(Mary.Data);
 	}
 	
@@ -79,12 +77,15 @@ void Respond (PicoComms* M) {
 int TestPair() {
 	PicoComms* C2 = 0;
 	auto C = PicoMsgCommsPair(&C2, PicoNoisy);
-	if (!C) return errno;
-	 
-	PicoMsgSendStr(C, "pear🍐🍐🍐test");
-	auto Msg = PicoMsgGet(C2, 30.0);
-	if (!Msg.Data) Msg.Data = (char*)"failed get";
-	puts(Msg.Data);
+	if (C) {
+		PicoMsgSendStr(C, "pear🍐🍐🍐test");
+		auto Msg = PicoMsgGet(C2, 30.0);
+		if (Msg.Data)
+			PicoMsgSay(C2, "Received:", Msg.Data);
+		  else
+			PicoMsgSay(C2, "failed get");
+		free(Msg.Data); // always free what you collect!
+	}
 	PicoMsgDestroy(C);
 	PicoMsgDestroy(C2);
 	return 0;	
@@ -104,7 +105,7 @@ int TestThread() {
 }
 
 int main (int argc, const char * argv[]) {
-	if (strcmp(argv[0], "thread")!=0)
+	if (strcmp(argv[0], "pair")==0)
 		return TestPair();
 	  else
 		return TestThread();

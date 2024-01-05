@@ -4,7 +4,6 @@
 
 // Simple parent-child queue-based message-passing.
 // uses two threads, and is non-blocking
-// #define PicoMaxConnections <Num> to allow how many <Num> max connections.
 
 
 #ifndef __PICO_MSG__
@@ -36,44 +35,13 @@ struct 			PicoMessageConfig  { const char* Name; int LargestMsg; int Noise; int 
 	#include <deque>
 	#include <algorithm>
 
-#ifndef PicoMaxConnections
-	#define PicoMaxConnections 16
-#endif
-
 
 using std::deque;
 using std::atomic_bool; using std::atomic_int; using std::atomic_uint64_t;
-
-
-struct PicoCommsBase {
-	atomic_int			RefCount;
-	int					Index;
-	PicoMessageConfig	Conf;
-
-	void Decr() {
-		if (RefCount-- == 1) delete this;
-	}
+struct PicoTrousersLocker {
+	struct PicoTrousers& Lock; 
+	~PicoTrousersLocker ();
 };
-
-
-static	void*			pico_worker (void* obj);
-typedef int64_t			PicoDate;  // 16 bits for small stuff
-typedef ssize_t			(*pico_io_fn)(int, void *, size_t, int);
-static	pthread_t		PicoThreads[2];
-static	PicoDate		PicoLastActivity;
-
-
-PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
-    NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
-    S <<= 16;
-    return S + NS;
-}
-
-PicoDate PicoGetDate( ) {
-	timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
-	return pico_date_create(ts.tv_sec, ts.tv_nsec);
-}
-
 
 struct PicoTrousers { // only one person can wear them at a time.
 	atomic_bool Value;
@@ -87,10 +55,13 @@ struct PicoTrousers { // only one person can wear them at a time.
 	void unlock () {
 		Value = false;
 	}
-	void lock () {
+	PicoTrousersLocker lock () {
 		while (!enter()); // spin
+		return {*this};
 	}
 };
+
+PicoTrousersLocker::~PicoTrousersLocker () {Lock.unlock();}
 
 
 struct PicoRange {
@@ -102,40 +73,72 @@ struct PicoRange {
 };
 
 
-struct PicoCommList : PicoTrousers {
-	atomic_int			Count;
-	PicoCommsBase*		Items[PicoMaxConnections+1]; // last item is always 0
+typedef int64_t			PicoDate;  // 16 bits for small stuff
+PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
+    NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
+    S <<= 16;
+    return S + NS;
+}
+
+PicoDate PicoGetDate( ) {
+	timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+	return pico_date_create(ts.tv_sec, ts.tv_nsec);
+}
+
+
+PicoTrousers PicoCommsLocker;
+struct PicoCommsBase {
+	atomic_int				RefCount;
+    PicoCommsBase*			Next;
+    PicoCommsBase*			Prev;
+	PicoMessageConfig		Conf;
 	
-	void AddCom (PicoCommsBase* M) {
-		lock();
-		M->RefCount++;
-		int I = M->Index = Count++; 
-		Items[I] = M;
-		unlock();
+	PicoCommsBase () { Prev = this; Next = 0;}
+	
+	void Decr() {
+		if (!--RefCount) delete this;
+	}
+
+	void AddComm (PicoCommsBase* New) {
+		auto L = PicoCommsLocker.lock();
+		PicoCommsBase* N = Next;
+		if (N)
+			N->Prev = New;
+		New->Next = N;
+		New->Prev = this;
+		Next = New;
 	}
 	
-	void Remove (int i) {
-		lock();
-		auto P = Items[i]; 
-		int n = Count - 1;
-		Items[i] = Items[n];
-		Items[n] = 0;
-		Count = n;
-		if (P)
-			P->RefCount--;
-		unlock();
+	void RemoveComm () {
+		auto L = PicoCommsLocker.lock();
+		PicoCommsBase* N = Next;
+		PicoCommsBase* P = Prev;
+		if (N)
+			N->Prev = P;
+		P->Next = N;
+		Next = 0;
+		Prev = 0;
 	}
 	
+	PicoComms* NextComm () {
+		auto L = PicoCommsLocker.lock();
+		auto N = Next;
+		if (N)
+			N->RefCount++;
+		return (PicoComms*)N;
+	}
+};
+
+
+PicoCommsBase PicoList;
+
+
+static	void*			pico_worker (void* obj);
+static	pthread_t		PicoThreads[2];
+static	PicoDate		PicoLastActivity;
+
+
 	;;;/*_*/;;;   // <-- a spider that ehlps you do async work
-	PicoComms* operator [] (int i) {
-		lock();
-		auto P = Items[i];
-		if (P) P->RefCount++;
-		unlock();
-		return (PicoComms*)P;
-	}
-	
-} PicoList;
     ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
 
 
@@ -184,7 +187,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 
 	void Lost (int N) {
 		PicoLastActivity = PicoGetDate();
-		IO.lock();	
+		auto Lck = IO.lock();	
 		auto R = PicoRange(Range); 
 		int L = R.Length() - N;
 		int S = R.Start() + N;
@@ -192,18 +195,16 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 			S = 0;
 		R.Set(S, L);
 		Range = R.Range;
-		IO.unlock();
 	}
 	
 	int Length () { return PicoRange(Range).Length(); }; 
 
 	void Gained (int N) { 
 		PicoLastActivity = PicoGetDate();
-		IO.lock();
+		auto Lck = IO.lock();	
 		auto R = PicoRange(Range); 
 		R.Set(R.Start(), R.Length() + N);
 		Range = R.Range;
-		IO.unlock();
 	}
 
 	bool Append (const char* Src, int ML) {
@@ -327,9 +328,10 @@ struct PicoComms : PicoCommsBase {
 	void do_reading () {
 		while ( auto Msg = Reading.AskUnused() ) {
 			int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
-			if (Amount > 0)
+			if (Amount > 0) {
 				Reading.Gained(Amount);
-			  else if (!io_pass(Amount))
+				Say("Read", "", Amount);
+			} else if (!io_pass(Amount))
 				break;
 		}
 	}
@@ -342,9 +344,10 @@ struct PicoComms : PicoCommsBase {
 				
 		while ( auto Msg = Sending.AskUsed() ) {
 			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
-  			if (Amount > 0)
+  			if (Amount > 0) {
 				Sending.Lost(Amount);
-			  else if (!io_pass(Amount))
+				Say("Sent", "", Amount);
+			} else if (!io_pass(Amount))
 				break;
 		}
 	}
@@ -384,7 +387,7 @@ struct PicoComms : PicoCommsBase {
 	
 	void add_conn (int Sock) {
 		Socket = Sock;
-		PicoList.AddCom(this);
+		PicoList.AddComm(this);
 		Say("Started");
 	}
 	
@@ -400,12 +403,10 @@ struct PicoComms : PicoCommsBase {
 
 	void destroy () {
 		Reading.IsOpen = false;
-		disconnect("deleted");
+		disconnect(!Err?"Successful":"");
 		if (Socket) // clear stuck send/recv
 			Socket = close(Socket)&0;
-		if (Index >= 0)
-			PicoList.Remove(Index);
-		Index = -1;
+		RemoveComm();
 		Decr();
 	}
 			
@@ -433,13 +434,13 @@ struct PicoComms : PicoCommsBase {
 
 
 static void pico_work_comms () {
-	for (int i = 0; auto M = PicoList[i]; i++)
+	for (auto M = PicoList.NextComm(); M; M = M->NextComm())
 		M->io();
 	
 	float S = 1000.0f;
 	if (PicoLastActivity)
 		S = (PicoGetDate() - PicoLastActivity) * 0.000015258789f; // seconds
-	int x = (int)std::clamp(S * S * 50000.0f, 1000000.0f, 999999999.0f);
+	int x = (int)std::clamp(S * S * 50000.0f, 1000000.0f, 999999872.0f); // over 999999872 can round up, strangely.
 	timespec ts = {0, x};
 	nanosleep(&ts, 0);
 }
@@ -450,8 +451,6 @@ static void* pico_worker (void* T) {
 }
 
 bool pico_start () {
-	if (PicoList.Count >= PicoMaxConnections)
-		return puts("Pico: Too many threads.")*false;
 	if (!PicoThreads[0])
 		for (int i = 0; i < 1; i++) {
 			auto T = &PicoThreads[i];
