@@ -14,7 +14,7 @@ void* Query (PicoComms* M) {
 	PicoMsgSay(M, "Sending");
 	PicoMsgSendStr(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
-	while (1) sleep(1000);
+	sleep(1000);
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
 		abcd[i] = rand();
@@ -77,14 +77,16 @@ void Respond (PicoComms* M) {
 
 
 int TestPair() {
-	auto C = PicoMsgComms(PicoNoisy);
-	auto C2 = C->Pair(); if (!C2) return errno;
+	PicoComms* C2 = 0;
+	auto C = PicoMsgCommsPair(&C2, PicoNoisy);
+	if (!C) return errno;
 	 
 	PicoMsgSendStr(C, "pear🍐🍐🍐test");
-	auto Msg = PicoMsgGet(C, 10.0);
+	auto Msg = PicoMsgGet(C2, 30.0);
 	if (!Msg.Data) Msg.Data = (char*)"failed get";
 	puts(Msg.Data);
 	PicoMsgDestroy(C);
+	PicoMsgDestroy(C2);
 	return 0;	
 }
 
