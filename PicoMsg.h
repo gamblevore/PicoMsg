@@ -1,8 +1,9 @@
 
 // picomsg
+// Licence: https://creativecommons.org/licenses/by/4.0/
+
 // Simple parent-child queue-based message-passing.
 // uses two threads, and is non-blocking
-
 // #define PicoMaxConnections <Num> to allow how many <Num> max connections.
 
 
@@ -41,7 +42,7 @@ struct 			PicoMessageConfig  { const char* Name; int LargestMsg; int Noise; int 
 
 
 using std::deque;
-using std::atomic_bool; using std::atomic_int;
+using std::atomic_bool; using std::atomic_int; using std::atomic_uint64_t;
 
 
 struct PicoCommsBase {
@@ -91,6 +92,17 @@ struct PicoTrousers { // only one person can wear them at a time.
 	}
 };
 
+
+struct PicoRange {
+	uint64_t Range;	
+	PicoRange (uint64_t R = 0) {Range = R;}
+	int Length () {return Range&0xFFFFffff;}
+	int Start () {return Range>>32;}
+	void Set (uint64_t Start, uint64_t Length) {Range = (Start<<32)|Length;}
+	operator bool () {return Length();}
+};
+
+
 struct PicoCommList : PicoTrousers {
 	atomic_int			Count;
 	PicoCommsBase*		Items[PicoMaxConnections+1]; // last item is always 0
@@ -136,18 +148,17 @@ struct PicoCommList : PicoTrousers {
 struct PicoBuff { // We have to move this code DOWN to get away from the spiders! 😠
 	const char*			Name;
 	char*				SectionStart;
-	int					Start;
-	int					Length;
+	atomic_uint64_t		Range;
 	int					Size;
 	PicoTrousers		IO;
 	PicoTrousers		IsOpen;			// allow for read after they disconnect
 	
-	PicoBuff () {IsOpen=true; Name = ""; SectionStart = 0; Start = 0; Length = 0; Size = 0;}
+	PicoBuff () {IsOpen=true; Name = ""; SectionStart = 0; Size = 0;}
 	
 	bool Alloc (int n, const char* name) {
 		Name = name;
 		if (!(SectionStart = (char*)calloc(n, 1))) return false;
-		Start = 0; Length = 0; Size = n;
+		Size = n;
 		return true;
 	}
 	
@@ -160,24 +171,38 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 */
 	
 	
-	// Sync:  .AskEmpty + .Lost   with   .Append(.askfill + .Gained)
-	PicoMessage AskEmpty () {
-		auto L = Length;
+	// Sync:  (.AskUsed + .Lost)   with   (.AskUnused + .Gained)
+	PicoMessage AskUsed () {
+		auto R = PicoRange(Range); 
+		int L = R.Length();
 		if (!L) return {};
 
-		auto S = Start;
+		int S = R.Start();
 		auto From = SectionStart+S;
-		return {From, std::min(S + L, Size)};
+		return {From, std::min(L, Size-S)};
 	}
 
 	void Lost (int N) {
 		PicoLastActivity = PicoGetDate();
+		IO.lock();	
+		auto R = PicoRange(Range); 
+		int L = R.Length() - N;
+		int S = R.Start() + N;
+		if (S >= Size)
+			S = 0;
+		R.Set(S, L);
+		Range = R;
+		IO.unlock();
+	}
+	
+	int Length () { return PicoRange(Range).Length(); }; 
+
+	void Gained (int N) { 
+		PicoLastActivity = PicoGetDate();
 		IO.lock();
-		Start += N;
-		auto L2 = Length - N;
-		Length = L2;
-		if (!L2 or Start >= Size)
-			Start = 0;
+		auto R = PicoRange(Range); 
+		R.Set(R.Start(), R.Length() + N);
+		Range = R;
 		IO.unlock();
 	}
 
@@ -187,7 +212,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 	}
 	
 	bool AppendSub (const char* Src, int Need) {
-		while (auto Dest = AskFill()) {
+		while (auto Dest = AskUnused()) {
 			int Avail = std::min(Need, Dest.Length);
 			Need -= Avail;
 			Gained(Avail);
@@ -197,12 +222,12 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 		return false;
 	}
 	
-	/////// sync:  .AskFill + .Gained   with   .Get(.askempty + .Lost)
-	PicoMessage AskFill () {
-		auto L = Length;
-		auto S = Start;
+	PicoMessage AskUnused () {
+		auto R = PicoRange(Range); 
+		auto L = R.Length();
 		auto M = Size; 
 		if (L >= M) return {};
+		auto S = R.Start();
 		auto FromPos = L + S;
 		if (FromPos >= M)
 			FromPos -= M;
@@ -211,17 +236,8 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 		return {SectionStart + FromPos, M - FromPos};
 	}
 	
-	void Gained (int N) { 
-		PicoLastActivity = PicoGetDate();
-		IO.lock();
-		Length += N; // seems fair?
-		IO.unlock();
-	}
-
 	bool Get (char* Dest, int N) {
-		if (Length < N)
-			return false;
-		while (auto Msg = AskEmpty()) {
+		while (auto Msg = AskUsed()) {
 			int B = std::min(Msg.Length, N);
 			memcpy(Dest, Msg.Data, B);
 			Dest += B;
@@ -237,7 +253,7 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 static char PicoCloseData[4] = {};
 
 struct PicoComms : PicoCommsBase {
-	pollfd				Poller;
+	int					Socket;
 	unsigned char		Err;
 	bool				IsParent;
 	int					LengthBuff;
@@ -245,7 +261,7 @@ struct PicoComms : PicoCommsBase {
 	PicoBuff			Sending;
 	
 	PicoComms (int noise, bool isparent) {
-		RefCount = 1; Poller = {0, POLLIN}; Err = 0; IsParent = isparent; Conf.Name = isparent?"Parent":"Child";
+		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; Conf.Name = isparent?"Parent":"Child";
 		Conf.Noise = noise;
 		if (!Sending.Alloc(1024*1024, "send") or !Reading.Alloc(1024*1024, "read"))
 			failed(ENOBUFS);
@@ -307,27 +323,23 @@ struct PicoComms : PicoCommsBase {
 //// INTERNALS ////
 	
 	void do_reading () {
-		while ( auto Msg = Reading.AskFill() ) {
-			int Amount = (int)recv(Poller.fd, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+		while ( auto Msg = Reading.AskUnused() ) {
+			int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount > 0)
 				Reading.Gained(Amount);
 			  else if (!io_pass(Amount))
 				break;
 		}
-		
-		Reading.IO.unlock();
 	}
 	
 	void do_sending () {
-		while ( auto Msg = Sending.AskEmpty() ) {
-			int Amount = (int)send(Poller.fd, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+		while ( auto Msg = Sending.AskUsed() ) {
+			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount > 0)
 				Sending.Lost(Amount);
 			  else if (!io_pass(Amount))
 				break;
 		}
-		
-		Sending.IO.unlock();
 	}
 	
 	PicoMessage nothing (void* nuffing) {return {};}
@@ -335,7 +347,7 @@ struct PicoComms : PicoCommsBase {
 	PicoMessage get_sub () {
 		int L = LengthBuff; 
 		if (!L) {
-			if (Reading.Length < 4) return {};
+			if (Reading.Length() < 4) return {};
 			Reading.Get((char*)&LengthBuff, 4);
 			L = LengthBuff; 
 			if (!L) {              // Length==0 --> CloseGraceful
@@ -347,7 +359,7 @@ struct PicoComms : PicoCommsBase {
 		if (L < 0)
 			return nothing(failed(EILSEQ));
 
-		if (Reading.Length < L) return {};
+		if (Reading.Length() < L) return {};
 		char* Data = (char*)malloc(L);
 		if (Data) {
 			Reading.Get(Data, L);
@@ -362,7 +374,7 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	void add_conn (int Sock) {
-		Poller.fd = Sock;
+		Socket = Sock;
 		PicoList.AddCom(this);
 		Say("Started");
 	}
@@ -380,8 +392,8 @@ struct PicoComms : PicoCommsBase {
 	void destroy () {
 		Reading.IsOpen = false;
 		disconnect("deleted");
-		if (Poller.fd) // clear stuck send/recv
-			Poller.fd = close(Poller.fd)&0;
+		if (Socket) // clear stuck send/recv
+			Socket = close(Socket)&0;
 		if (Index >= 0)
 			PicoList.Remove(Index);
 		Index = -1;
@@ -402,14 +414,12 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	void io () {
-		if (Poller.fd)
-			if (poll(&Poller, 1, 0) > 0  and  Reading.IO.enter())
-				do_reading();
-		if (Sending.IsOpen) {
-			if (Sending.Length and Sending.IO.enter())
-				do_sending();
-		} else if (Poller.fd) {
-			Poller.fd = close(Poller.fd)&0;
+		if (Socket)
+			do_reading();
+		if (Sending.IsOpen and Sending.Length()) {
+			do_sending();
+		} else if (Socket) {
+			Socket = close(Socket)&0;
 		}
 		Decr(); 
 	}
