@@ -1,17 +1,14 @@
 
 
-
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"
 #include <unistd.h>
 #include <vector>
-using std::vector; 
-
+using std::vector;
 
 
 void* Query (PicoComms* M) {
 	M->Conf.Name = "Query";
-	PicoMsgSay(M, "Sending");
 	PicoMsgSendStr(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -37,62 +34,73 @@ void* Query (PicoComms* M) {
 		abcd[i] ++;
 	}
 
-	PicoMsgSay(M, "Comparing");
+	PicoMsgSay(M, "Comparing", "", (int)Sent.size());
 
-	for (auto v: Sent) {
-		auto OK = PicoMsgGet(M, 5.0);
+	for (int i = 0; i < Sent.size(); i++) {
+		auto& v = Sent[i];
+		auto OK = PicoMsgGet(M, 7.0);
 		if (!OK)								return 0;
 		if (OK.Length != v.Length)				return PicoMsgSay(M, "bad length");
 		int diff = memcmp(v.Data, OK.Data, v.Length);
 		if (diff)								return PicoMsgSay(M, "netdown");
 		abc += v.Length;
-		PicoMsgSay(M, "Passed");
+		PicoMsgSay(M, "Passed", "", i+1);
 		free(OK.Data);
 	}
-	PicoMsgSay(M, "QD");
+	PicoMsgSay(M, "Tests Passed!");
 	return 0;
 }
 
 
 void Respond (PicoComms* M) {
 	M->Conf.Name = "Respond";
-	auto Mary = PicoMsgGet(M, 5.0);
+	auto Mary = PicoMsgGet(M, 6.0);
 	if (Mary) {
 		PicoMsgSay(M, "Received", Mary.Data);
 		free(Mary.Data);
+	} else {
+		PicoMsgSay(M, "Missed Data");
 	}
 	
 	while (!PicoMsgErr(M)) {
-		auto Msg = PicoMsgGet(M, 10.0);
+		auto Msg = PicoMsgGet(M, 2);
 		if (!Msg) break;
 
 		for (int i = 0; i < Msg.Length; i++) {
 			(Msg.Data)[i]++;
 		}
-		PicoMsgSend(M, Msg); // send will "own" the malloc'd data in Msg
+		PicoMsgSend(M, Msg);
 	}
+	M->SayEvent( "End" );
 }
 
 
-int TestPair() {
-	PicoComms* C2 = 0;
-	auto C = PicoMsgCommsPair(&C2, PicoNoisy);
-	if (C) {
+int TestPair (PicoComms* C) {
+	auto C2 = PicoMsgCommsPair(C, PicoNoiseEvents);
+	if (C2) {
 		PicoMsgSendStr(C, "pear🍐🍐🍐test");
-		auto Msg = PicoMsgGet(C2, 30.0);
+		auto Msg = PicoMsgGet(C2, 2.0);
 		if (Msg.Data)
 			PicoMsgSay(C2, "Received:", Msg.Data);
 		  else
 			PicoMsgSay(C2, "failed get");
-		free(Msg.Data); // always free what you collect!
+		free(Msg.Data); // always free what you get back!
 	}
-	PicoMsgDestroy(C);
 	PicoMsgDestroy(C2);
 	return 0;	
 }
 
-int TestThread() {
-	auto C = PicoMsgComms(PicoNoisy);
+
+int TestIntense (PicoComms* C) {
+	auto C2 = PicoMsgCommsPair(C);
+
+
+	PicoMsgDestroy(C2);
+	return 0;	
+}
+
+
+int TestThread (PicoComms* C) {
 	int PID = PicoMsgFork(C);
 	if (PID < 0)
 		return -PID;
@@ -100,14 +108,21 @@ int TestThread() {
 		Query(C);
 	  else
 		Respond(C);
-	PicoMsgDestroy(C);
+	if (PID) sleep(4); // let the child exit
 	return 0;	
 }
 
+
 int main (int argc, const char * argv[]) {
-	if (strcmp(argv[0], "pair")==0)
-		return TestPair();
-	  else
-		return TestThread();
+	auto C = PicoMsgComms();
+	int rz = 0;
+	if (strcmp(argv[0], "intense")==0)
+		rz = TestIntense(C);
+	 else if (true or strcmp(argv[0], "pair")==0)
+		rz = TestPair(C);
+	 else
+		rz = TestThread(C);
+	PicoMsgDestroy(C);
+	return rz;
 }
 
