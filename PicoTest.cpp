@@ -1,5 +1,7 @@
 
-
+// todo: fool around with error handling
+// handle bigger data, and picobuffer rewraps
+// have a block on send feature...
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"
 #include <unistd.h>
@@ -70,6 +72,7 @@ void Respond (PicoComms* M) {
 			(Msg.Data)[i]++;
 		}
 		PicoMsgSend(M, Msg);
+		free(Msg.Data);
 	}
 	M->SayEvent( "End" );
 }
@@ -92,10 +95,55 @@ int TestPair (PicoComms* C) {
 
 
 int TestIntense (PicoComms* C) {
-	auto C2 = PicoMsgCommsPair(C);
+	int PID = PicoMsgFork(C);
+	if (PID < 0)
+		return -PID;
+	if (PID) {
+		char Data[20] = {};
+		for (int iters = 1; iters <= 10; iters++) {
+			PicoMessage Snd = {Data};
+			for (int i = 0; i <= 1000; i++) {
+				int j = 0;
+				for (int reps = 0; reps <= i % 3; reps++) {
+					int x = i;
+					for (; j < 16; j++) {
+						int y = x % 26;
+						x /= 26;
+						Data[j] = y + 'B';
+						if (x == 0) {
+							j++;
+							Data[j] = 1;
+							Snd.Length = j;
+							break;
+						}
+					}
+				}
+				PicoMsgSend(C, Snd);
+				auto Rec = PicoMsgGet(C, 0);
+				if (Rec)
+					puts(Rec.Data);
+				free(Rec.Data);
+			}
+		}
+		
+		while (1) {
+			auto Rec = PicoMsgGet(C, 1);
+			if (!Rec) break; 
+			puts(Rec.Data);
+			free(Rec.Data);
+		}
+		sleep(1);
 
-
-	PicoMsgDestroy(C2);
+	} else {
+		while (auto Msg = PicoMsgGet(C, 3.0)) {
+			for (int j = 0; j < Msg.Length; j++)
+				Msg.Data[j]--;
+			PicoMsgSend(C, Msg);
+			free(Msg.Data);
+		}
+		while (PicoMsgStillSending(C))
+			sleep(1);
+	}
 	return 0;	
 }
 
@@ -116,9 +164,9 @@ int TestThread (PicoComms* C) {
 int main (int argc, const char * argv[]) {
 	auto C = PicoMsgComms();
 	int rz = 0;
-	if (strcmp(argv[0], "intense")==0)
+	if (true or strcmp(argv[0], "intense")==0)
 		rz = TestIntense(C);
-	 else if (true or strcmp(argv[0], "pair")==0)
+	 else if (strcmp(argv[0], "pair")==0)
 		rz = TestPair(C);
 	 else
 		rz = TestThread(C);

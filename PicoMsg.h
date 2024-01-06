@@ -8,6 +8,7 @@
 
 #ifndef __PICO_MSG__
 #define __PICO_MSG__
+#include <stdlib.h>
 
 #define PicoSilent				0
 #define PicoNoiseDebugChild		1
@@ -18,7 +19,10 @@
 #define PicoNoiseEvents			12
 
 struct			PicoComms;
-struct			PicoMessage        { char* Data;       int Length;  operator bool () {return Data;} };
+struct			PicoMessage {
+	char* Data; int Length;
+	operator bool () {return Data;};
+};
 struct 			PicoMessageConfig  { const char* Name; int LargestMsg; int Noise; int TotalReceived; int TotalSent; };
 
 #ifndef PICO_IMPLEMENTATION
@@ -77,7 +81,7 @@ struct PicoRange {
 };
 
 
-typedef int64_t			PicoDate;  // 16 bits for small stuff
+typedef int64_t	PicoDate;  // 16 bits for small stuff
 PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
     NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
     S <<= 16;
@@ -142,17 +146,6 @@ static	PicoCommsBase	PicoList;
 static	PicoDate		PicoLastActivity;
 static	void*			pico_worker (void* obj);
 static	atomic_int		PicoThreadCount;
-
-bool pico_start () {
-	for (int i = PicoThreadCount; i < 1; i++) {
-		pthread_t T = 0;
-		if (pthread_create(&T, 0, pico_worker, 0) or pthread_detach(T))
-			return puts("Pico: Unable to create threads.")*false;
-	}
-	return true;
-}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
-
-
 
 
 
@@ -290,7 +283,7 @@ struct PicoComms : PicoCommsBase {
 //
 	PicoComms* Pair (int Noise) {
 		int Socks[2] = {};
-		if (!get_pair_of(Socks)) return 0;
+		if (!pico_start() or !get_pair_of(Socks)) return 0;
 		PicoComms* Rz = new PicoComms(Noise, false);
 		add_conn(Socks[0]);
 		Rz->add_conn(Socks[1]);
@@ -308,26 +301,28 @@ struct PicoComms : PicoCommsBase {
 		close(Socks[!IsParent]);
 		add_conn(Socks[IsParent]);
 
-		if (!pico_start()) {
-			disconnect("Thread Failed");
-			if (!IsParent) exit(-1);
-		}
+		if (!pico_start() and !IsParent) exit(-1);
 		
 		if (!IsParent)
 			PicoThreadCount = 0; // Unix doesn't let us keep threads.
 		return pid; 
 	}
 	
-	bool QueueSend (const char* msg, int n) {
+	bool QueueSend (const char* msg, int n, float T) {
 		if (WantClose) return false;
 		if (!Sending.Append(msg, n)) return failed(ENOBUFS);
 		SayDebug( "QueuedForSend", "", n);
 		return true;
 	}
 
+	bool StillSending () {
+		return Socket and Sending.Length();	
+	}
+	
 	PicoMessage Get (float T = 0.0) {
 		PicoMessage M = get_sub();
 		if (M or T <= 0) return M;
+		T = std::min(T, 54321000.0f); // 1.5 years?
 		PicoDate Final = PicoGetDate() + (PicoDate)(T*65536.0f);
 		timespec ts = {0, 1000000}; int n = T*16000;
 		for ( int i = 0;  Socket and !M and i < n;   i++) {
@@ -343,18 +338,16 @@ struct PicoComms : PicoCommsBase {
 	void* SayDebug (const char* A, const char* B="", int Iter=0) { return Say(A, B, Iter, 1); }
 	
 	void* Say (const char* A, const char* B, int Iter, int Strength) {
-		if (Strength < 3) {
-			int N = Conf.Noise & ((PicoNoiseDebugChild+PicoNoiseEventsChild) << IsParent);
-			if (!(N&3 and Strength > 0) and !(N&12 and Strength == 2))
-				return nullptr;
-		}
+		int N = Conf.Noise & ((PicoNoiseDebugChild+PicoNoiseEventsChild) << IsParent);
+		if (Strength < 3 and !(N&3 and Strength > 0) and !(N&12 and Strength == 2))
+			return nullptr;
 		
 		const char* S = IsParent?"Us":"Them";
 		
 		if (Iter)
-			printf("%s.%s says: %s %s %i\n", S, Conf.Name, A, B, Iter);
+			printf("%s.%s: %s %s %i\n", S, Conf.Name, A, B, Iter);
 		  else
-			printf("%s.%s says: %s %s\n", S, Conf.Name, A, B);
+			printf("%s.%s: %s %s\n", S, Conf.Name, A, B);
 		
 		return nullptr;
 	}
@@ -368,7 +361,7 @@ struct PicoComms : PicoCommsBase {
 			int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount > 0) {
 				Reading.Gained(Amount);
-				pico_sleep(0.001);
+				timespec ts = {0,1000}; nanosleep(&ts, 0); // why do we need this???
 //				Say("Read", "", Amount);
 			} else if (!io_pass(Amount))
 				break;
@@ -376,6 +369,7 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	void do_sending () {
+		SayDebug("Sending");
 		if (Err)
 			return;
 		
@@ -424,6 +418,15 @@ struct PicoComms : PicoCommsBase {
 		SayEvent("Started");
 	}
 	
+	bool pico_start () {
+		for (int i = PicoThreadCount; i < 1; i++) {
+			pthread_t T = 0;
+			if (pthread_create(&T, 0, pico_worker, 0) or pthread_detach(T))
+				return disconnect("Thread Failed");
+		}
+		return true;
+	}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
+
 	void* disconnect (const char* Why) {
 		if (WantClose) return 0;
 		if (!Err) Err = ENOTCONN; // this blocks sending! but not reading.
@@ -443,13 +446,16 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	void* failed (int err=errno) {
+		if (!Err)
+			SayEvent("Failed", strerror(err));
 		Err = err;
-		return SayEvent("Failed", strerror(err));
+		return 0;
 	}
 		
 	bool io_pass (int Amount) {
 		if (!Amount) return false;
 		int e = errno;
+//		SayDebug("pass", strerror(e), e);
 		if (e == EAGAIN) return false;
 		if (e == EINTR)  return true;
 		return failed(e);
@@ -520,13 +526,13 @@ extern "C" void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int 
 	return M->Say(A, B, Iter, 3);
 )
 
-extern "C" bool PicoMsgSend (PicoComms* M, PicoMessage Msg) _pico_code_ (
+extern "C" bool PicoMsgSend (PicoComms* M, PicoMessage Msg, float Time=0) _pico_code_ (
 	if  (!Msg.Data  or  Msg.Length <= 0) return false;
-	return M->QueueSend(Msg.Data, Msg.Length);
+	return M->QueueSend(Msg.Data, Msg.Length, Time);
 )
 
-extern "C" bool PicoMsgSendStr (PicoComms* M, const char* Msg) _pico_code_ (
-	return M->QueueSend(Msg, (int)strlen(Msg)+1);
+extern "C" bool PicoMsgSendStr (PicoComms* M, const char* Msg, float Time=0) _pico_code_ (
+	return M->QueueSend(Msg, (int)strlen(Msg)+1, Time);
 )
 
 extern "C" PicoMessage PicoMsgGet (PicoComms* M, float Time=0) _pico_code_ (
@@ -535,6 +541,10 @@ extern "C" PicoMessage PicoMsgGet (PicoComms* M, float Time=0) _pico_code_ (
 
 extern "C" PicoMessageConfig* PicoMsgConf (PicoComms* M) _pico_code_ (
 	return &M->Conf;
+)
+
+extern "C" bool PicoMsgStillSending (PicoComms* M) _pico_code_ (
+	return M->StillSending();
 )
 
 #endif
