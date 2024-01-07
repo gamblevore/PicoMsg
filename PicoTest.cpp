@@ -1,7 +1,6 @@
 
 // todo: fool around with error handling
-// handle bigger data, and picobuffer rewraps
-// have a block on send feature...
+// handle bigger data
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"
 #include <unistd.h>
@@ -94,56 +93,84 @@ int TestPair (PicoComms* C) {
 }
 
 
+int TestWrite(char* Out, int i, char Base) {
+	int j = 0;
+	for (int reps = 0; reps <= i % 3; reps++) {
+		int x = i;
+		while (j < 16) {
+			int y = x % 26;
+			x /= 26;
+			Out[j++] = y + 'A' + Base;
+			if (x == 0)
+				break;
+		}
+	}
+	Out[j] = 0;
+	return j+1;
+}
+
+int RecIndex = 0;
+bool TestIntenseCompare (PicoComms* C, float T) {
+	char Expected[20] = {};
+	auto Rec = PicoMsgGet(C, T); if (!Rec) return false;
+	auto Found = Rec.Data;
+	TestWrite(Expected, RecIndex, 0);
+	printf("<-- %s %i\n", Found, RecIndex);
+	bool Rz = strcmp(Expected, Found) == 0;
+	if (!Rz) {
+		printf("String %i differed! Expected '%s' but found '%s'\n", RecIndex, Expected, Found);
+		T = T;
+	}
+	RecIndex++;
+	free(Found);
+	return Rz;
+}
+// --> HFLHFL 7574
+
 int TestIntense (PicoComms* C) {
 	int PID = PicoMsgFork(C);
+	C->Conf.Noise = PicoNoiseDebug;
 	if (PID < 0)
 		return -PID;
-	if (PID) {
-		char Data[20] = {};
-		for (int iters = 1; iters <= 10; iters++) {
-			PicoMessage Snd = {Data};
-			for (int i = 0; i <= 1000; i++) {
-				int j = 0;
-				for (int reps = 0; reps <= i % 3; reps++) {
-					int x = i;
-					for (; j < 16; j++) {
-						int y = x % 26;
-						x /= 26;
-						Data[j] = y + 'B';
-						if (x == 0) {
-							j++;
-							Data[j] = 1;
-							Snd.Length = j;
-							break;
-						}
-					}
-				}
-				PicoMsgSend(C, Snd);
-				auto Rec = PicoMsgGet(C, 0);
-				if (Rec)
-					puts(Rec.Data);
-				free(Rec.Data);
+	if (!PID) {
+		C->Conf.Name = "Tester";
+		char Out[20] = {}; memset(Out, -1, sizeof(Out));
+		PicoMessage Snd = {Out};
+		PicoMsgSay(C, "Asks intensely");
+		for (int i = 0; i < 100000; i++) {
+			Snd.Length = TestWrite(Out, i, 1);
+			if (!PicoMsgSend(C, Snd)) {
+//				sleep(1); // not sure why the other side does run at the same time?
+				if (!PicoMsgSend(C, Snd))
+					return puts("Exitting Sadly") | -1;
 			}
+			printf("--> %s %i\n", Snd.Data, i);
+			TestIntenseCompare(C, 0);
 		}
-		
-		while (1) {
-			auto Rec = PicoMsgGet(C, 1);
-			if (!Rec) break; 
-			puts(Rec.Data);
-			free(Rec.Data);
-		}
+		while (TestIntenseCompare(C, 10)) {;}
+		printf("%i strings compared.\n", RecIndex);
 		sleep(1);
 
 	} else {
-		while (auto Msg = PicoMsgGet(C, 3.0)) {
-			for (int j = 0; j < Msg.Length; j++)
-				Msg.Data[j]--;
+		C->Conf.Name = "Fixer";
+		int Back = 0;
+		char Out[20] = {}; memset(Out,-1,sizeof(Out));
+		while (auto Msg = PicoMsgGet(C, 10.0)) {
+			auto D = Msg.Data; Msg.Data = Out;
+			int n = Msg.Length-1;
+			for (int j = 0; j < n; j++)
+				Out[j] = D[j] - 1;
+			Out[n] = 0;
+			printf("    %i: %s(%i) >> %s\n", Back, D, n, Out);
 			PicoMsgSend(C, Msg);
-			free(Msg.Data);
+			free(D);
+			Back++;
+			if (PicoMsgErr(C)) break;
 		}
 		while (PicoMsgStillSending(C))
 			sleep(1);
 	}
+	PicoMsgSay(C, "Finished");
 	return 0;	
 }
 
