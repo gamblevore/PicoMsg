@@ -1,6 +1,8 @@
 
 // todo: fool around with error handling
 // handle bigger data
+// can we remove the sleep during read?
+
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"
 #include <unistd.h>
@@ -10,6 +12,7 @@ using std::vector;
 
 void* Query (PicoComms* M) {
 	M->Conf.Name = "Query";
+	M->Conf.Noise = PicoNoiseAll;
 	PicoMsgSendStr(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -21,13 +24,14 @@ void* Query (PicoComms* M) {
 	char* abc = &abcd[0];
 	int Remain = Stack*Pudge;
 	while (Remain > 0) {
-		if (PicoMsgErr(M)) return 0;
+		if (PicoMsgErr(M)) return PicoMsgSay(M, "Exit: CantSendAll");
 
 		int n = rand() % Pudge;
 		if (n > Remain) n = Remain;
 		Remain -= n;
 		Sent.push_back({abc, n});
-		PicoMsgSend(M, {abc, n});
+		PicoMsgSay(M, "User Send", "", n);
+		PicoMsgSend(M, {abc, n}, PicoSendCanTimeOut);
 		abc += n;
 	}
 	
@@ -40,28 +44,26 @@ void* Query (PicoComms* M) {
 	for (int i = 0; i < Sent.size(); i++) {
 		auto& v = Sent[i];
 		auto OK = PicoMsgGet(M, 7.0);
-		if (!OK)								return 0;
-		if (OK.Length != v.Length)				return PicoMsgSay(M, "bad length");
+		if (!OK)								return PicoMsgSay(M, "Exit: GotNothing");
+		if (OK.Length != v.Length)				return PicoMsgSay(M, "Exit: BadLength");
 		int diff = memcmp(v.Data, OK.Data, v.Length);
-		if (diff)								return PicoMsgSay(M, "netdown");
+		if (diff)								return PicoMsgSay(M, "Exit: BadContents");
 		abc += v.Length;
 		PicoMsgSay(M, "Passed", "", i+1);
 		free(OK.Data);
 	}
-	PicoMsgSay(M, "Tests Passed!");
+	PicoMsgSay(M, "Exit: Tests Passed!");
 	return 0;
 }
 
 
 void Respond (PicoComms* M) {
 	M->Conf.Name = "Respond";
+	M->Conf.Noise = PicoNoiseEvents;
 	auto Mary = PicoMsgGet(M, 6.0);
-	if (Mary) {
-		PicoMsgSay(M, "Received", Mary.Data);
-		free(Mary.Data);
-	} else {
-		PicoMsgSay(M, "Missed Data");
-	}
+	if (!Mary) return;
+	PicoMsgSay(M, "WasAsked", Mary.Data);
+	free(Mary.Data);
 	
 	while (!PicoMsgErr(M)) {
 		auto Msg = PicoMsgGet(M, 2);
@@ -70,10 +72,10 @@ void Respond (PicoComms* M) {
 		for (int i = 0; i < Msg.Length; i++) {
 			(Msg.Data)[i]++;
 		}
-		PicoMsgSend(M, Msg);
+		PicoMsgSend(M, Msg, PicoSendCanTimeOut);
 		free(Msg.Data);
 	}
-	M->SayEvent( "End" );
+	PicoMsgSay(M, "End");
 }
 
 
@@ -83,7 +85,7 @@ int TestPair (PicoComms* C) {
 		PicoMsgSendStr(C, "pear🍐🍐🍐test");
 		auto Msg = PicoMsgGet(C2, 2.0);
 		if (Msg.Data)
-			PicoMsgSay(C2, "Received:", Msg.Data);
+			PicoMsgSay(C2, "WasAsked", Msg.Data);
 		  else
 			PicoMsgSay(C2, "failed get");
 		free(Msg.Data); // always free what you get back!
@@ -125,14 +127,14 @@ bool TestIntenseCompare (PicoComms* C, float T) {
 	free(Found);
 	return Rz;
 }
-// --> HFLHFL 7574
+
 
 int TestIntense (PicoComms* C) {
 	int PID = PicoMsgFork(C);
-	C->Conf.Noise = PicoNoiseDebug;
+	C->Conf.Noise = PicoNoiseAll;
 	if (PID < 0)
 		return -PID;
-	if (!PID) {
+	if (PID) {
 		C->Conf.Name = "Tester";
 		char Out[20] = {}; memset(Out, -1, sizeof(Out));
 		PicoMessage Snd = {Out};
@@ -140,16 +142,20 @@ int TestIntense (PicoComms* C) {
 		for (int i = 0; i < 100000; i++) {
 			Snd.Length = TestWrite(Out, i, 1);
 			if (!PicoMsgSend(C, Snd)) {
-//				sleep(1); // not sure why the other side does run at the same time?
-				if (!PicoMsgSend(C, Snd))
-					return puts("Exitting Sadly") | -1;
+				return !PicoMsgSay(C, "Exitting Sadly");
 			}
-			printf("--> %s %i\n", Snd.Data, i);
+			PicoMsgSay(C, "Sending", Snd.Data, i);
 			TestIntenseCompare(C, 0);
 		}
+		PicoMsgSay(C, "AllSent!");
 		while (TestIntenseCompare(C, 10)) {;}
-		printf("%i strings compared.\n", RecIndex);
+		PicoMsgSay(C, "strings compared", "", RecIndex);
 		sleep(1);
+		// OK... so how do I solve this?
+		// it seems like its ending after a certain amount of time
+		// with no explaination why. the "Fixer" side is being blocked to read
+		// that means... noting is being sent. Is that true? And why would
+		// that happen? Did we quit???? DID WE?
 
 	} else {
 		C->Conf.Name = "Fixer";
@@ -161,16 +167,19 @@ int TestIntense (PicoComms* C) {
 			for (int j = 0; j < n; j++)
 				Out[j] = D[j] - 1;
 			Out[n] = 0;
-			printf("    %i: %s(%i) >> %s\n", Back, D, n, Out);
+//			printf("    %i: %s(%i) >> %s\n", Back, D, n, Out);
 			PicoMsgSend(C, Msg);
 			free(D);
 			Back++;
 			if (PicoMsgErr(C)) break;
 		}
+		PicoMsgSay(C, "NoMoreInputs", "", Back);
+		
 		while (PicoMsgStillSending(C))
 			sleep(1);
 	}
-	PicoMsgSay(C, "Finished");
+	
+	PicoMsgSay(C, "Acheived");
 	return 0;	
 }
 
@@ -188,12 +197,25 @@ int TestThread (PicoComms* C) {
 }
 
 
+void TestBuffers() {
+	PicoBuff B;
+	B.Alloc(28, "🕷️"); // we need a lot of spiddles for this.
+	// like a lot.
+	for (int i = 0; i < 5; i++)
+		B.append_sub("hello", 5);
+	B.lost(10);
+	B.append_sub("biggoodbye", 10);
+}
+
+
 int main (int argc, const char * argv[]) {
+	TestBuffers();
 	auto C = PicoMsgComms();
 	int rz = 0;
-	if (true or strcmp(argv[0], "intense")==0)
+	argv[0] = "3";
+	if (strcmp(argv[0], "1")==0)
 		rz = TestIntense(C);
-	 else if (strcmp(argv[0], "pair")==0)
+	 else if (strcmp(argv[0], "2")==0)
 		rz = TestPair(C);
 	 else
 		rz = TestThread(C);
