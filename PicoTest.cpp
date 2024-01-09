@@ -1,7 +1,5 @@
 
-// can we remove the sleep during read?
-// fix the warn-after logic!
-// make the list own it
+// get nanosleep should sleep 100x, but no longer than 0.1 second 
 
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"

@@ -157,7 +157,7 @@ struct PicoBuff {
 	int					Size;
 	PicoTrousers		WorkerThread;
 	
-	PicoBuff () {SectionStart = 0; Size = 0; Tail = 0; Head = 0; Name = "";}
+	PicoBuff  () {SectionStart = 0; Size = 0; Tail = 0; Head = 0; Name = "";}
 	~PicoBuff () {free(SectionStart);}
 	
 	bool Alloc (int bits, const char* name) { // 🕷️
@@ -171,15 +171,7 @@ struct PicoBuff {
 		Size = 1<<bits;
 		return true;
 	}
-	
-/*
-	||||||||------- // start
-	----||||------- // middle
-	------||||||||| // end (partial)
-	||||||||||||||| // end (whole)
-	|||||-----||||| // overlapping
-*/
-	
+		
 	PicoMessage AskUsed () {
 		int T = Tail; int H = Head; int S = Size; int B = S - 1;
 		if (T >= H) return {};
@@ -280,7 +272,7 @@ struct PicoComms : PicoCommsBase {
 		really_close();
 		SayEvent("Deleted");
 	}
-//
+
 	PicoComms* InitPair (int Noise) {
 		int Socks[2] = {};
 		if (!pico_start() or !get_pair_of(Socks)) return nullptr;

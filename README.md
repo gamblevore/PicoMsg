@@ -16,7 +16,7 @@ PicoMsg uses two threads behind the scenes, to do read and writes.
 ### Building
 
 	cd /Path/To/Proj
-	g++ PicoTest.cpp -o picotest -std=c++20
+	g++ PicoTest.cpp -o picotest -std=c++20 -Os
 
 Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`picotest 3`".
 
@@ -39,8 +39,8 @@ These are the functions you need to use PicoMsg:
 **`PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0)`**   :   Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
 
     struct PicoMessage {
-        char* Data;
         int   Length;
+        char* Data;
     };
 
 This is what you get back. This gives you the `Length` of the data, and the `Data` itself. `Data` from `PicoMsgGet` is, allocated with `malloc` and you must to `free` it after you are finished with it.
@@ -63,10 +63,19 @@ These functions are not always needed, but available in case you need them.
 **`PicoConfig* PicoMsgConf (PicoComms* M)`**    :   Gets the config struct. This lets you configure how your comms will work. Like noise, timeouts, name, and maximum unread-message queue size.
 
     struct PicoMessageConfig {
-        const char* Name;                // For Reporting Events. If the parent comms name is "Helper", then on close you will see "Parent.Helper: Closed Gracefully" in stdout.
-        int         Noise;
-        float       SendTimeOut;         // The number of seconds before a send will tiemout, (if the send is not instant).
-        int         QueueBytesRemaining; // The allowed size for unread messages that are queued up for you.
+        const char* Name;
+    /* For Reporting Events. If the parent comms name is "Helper",
+    then on close you will see "Parent.Helper: Closed Gracefully" in stdout. */
+        
+        int         Noise; // described below
+            
+        float       SendTimeOut;
+    /* The number of seconds before a send will timeout
+    (if the send is not instant). */
+
+        int         QueueBytesRemaining;
+    /* The allowed size for unread messages
+    that are queued up for you. */
     };
 
 The `Noise` value of the config, can be set to any of the below items. It can also be set on creating the comms object using PicoMsgComms.
