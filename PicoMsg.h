@@ -26,7 +26,7 @@ struct			PicoMessage {
 	char* Data; int Length;
 	operator bool () {return Data;};
 };
-struct 			PicoMessageConfig  { const char* Name; int Noise; float SendTimeOut; int LargestMsg; int TotalReceived; int TotalSent; int SendFailedCount;};
+struct 			PicoMessageConfig  { const char* Name; int Noise; float SendTimeOut; float BackedUpWarningPeriod; int LargestMsg; int TotalReceived; int TotalSent; int SendFailedCount;};
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -147,32 +147,27 @@ static	PicoCommsBase	PicoList;
 static	PicoDate		PicoLastActivity;
 static	void*			pico_worker (void* obj);
 static	atomic_int		PicoThreadCount;
-static const char*		PicoFailActions[4] = {"MemFail", "ReadFail", "SendFail", 0};
+static const char*		PicoFailActions[4] = {"Failed", "Reading", "Sending", 0};
 
 
 struct PicoBuff { // We have to move this code DOWN to get away from the spiders! 😠
 	const char*			Name;
 	char*				SectionStart;
-	std::atomic<char*>	Tail;
-	std::atomic<char*>	Head;
-	char*				SectionEnd;
+	int					Tail;
+	int					Head;
 	int					Size;
-	PicoTrousers		MainThread;
 	PicoTrousers		WorkerThread;
 	
-	PicoBuff () {Init();}
+	PicoBuff () {SectionStart = 0; Size = 0; Tail = 0; Head = 0; Name = "";}
 	~PicoBuff () {free(SectionStart);}
 	
-	bool Alloc (int n, const char* name) { // 🕷️
+	bool Alloc (int bits, const char* name) { // 🕷️
 		Name = name;
-		auto c = (char*)calloc(n, 1); if (!c) return false;
-		Head = SectionStart = c; Tail = c;
-		SectionEnd = SectionStart + n; 
-		Size = n;
+		SectionStart = (char*)calloc(1<<bits, 1); if (!SectionStart) return false;
+		Head = 0; Tail = 0;
+		Size = 1<<bits;
 		return true;
 	}
-	
-	void Init () { SectionStart = 0; Size = 0; Tail = 0; Head = 0; Name = ""; }
 	
 /*
 	||||||||------- // start
@@ -181,53 +176,39 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 	||||||||||||||| // end (whole)
 	|||||-----||||| // overlapping
 */
-
-/* sending
-	-----|||||------
-	-----|||||]]]--- // PicoSend
-	-----........--- // ThreadIO
-
-	-----|||||------
-	-----|||||]]]--- // PicoSend
-	-----.....]]]--- // ThreadIO (overlapping)
-
-	-----|||||------
-	-----.....------ // ThreadIO
-	----------]]]--- // PicoSend
-*/
 	
 	PicoMessage AskUsed () {
-		char* T = Tail;
-		char* H = Head;
-		if (T == H) return {};
-		if (H < T)
-			H = SectionEnd;
-		return {T, (int)(H-T)};
+		int T = Tail; int H = Head; int S = Size; int B = S - 1;
+		if (T >= H) return {};
+		T &= B; H &= B;
+		if (T >= H) // tail to head... or to size
+			H = S;
+		return {SectionStart+T, H-T};
+	}
+	
+	PicoMessage AskUnused () {
+		int T = Tail; int H = Head; int S = Size; int B = S-1;
+		int L = H - T;
+		if (L >= S) return {};
+		T &= B; H &= B;
+		if (T > H) // head to size, or head to tail.
+			S = T;
+		return {SectionStart+H, S-H};
 	}
 
 	void lost (int N) {
 		PicoLastActivity = PicoGetDate();
-		char* T = Tail + N;
-		if (T >= SectionEnd)
-			T = SectionStart; // i really hope it's not more.
-		Tail = T;
+		Tail+=N;
 	}
-	
-	int Length () {
-		char* T = Tail;
-		char* H = Head;
-		if (H < T)
-			H += Size;
-		return (int)(H-T);
-	}; 
 
 	void gained (int N) { 
 		PicoLastActivity = PicoGetDate();
-		char* H = Head + N;
-		if (H >= SectionEnd)
-			H = SectionStart; // again... hoping it's not beyond
-		Head = H;
+		Head += N;
 	}
+	
+	int Length () {
+		return Head - Tail;
+	}; 
 
 	bool AppendMsg (const char* Src, int MsgLen) {
 		int NetLen = htonl(MsgLen);
@@ -240,38 +221,19 @@ struct PicoBuff { // We have to move this code DOWN to get away from the spiders
 	}
 	
 	void append_sub (const char* Src, int Need) {
-//		printf("%s A1: %i\n", Name, Need);
 		while (auto Dest = AskUnused()) {
-//			puts("A2");
 			int Avail = std::min(Need, Dest.Length);
-//			puts("A4");
 			memcpy(Dest.Data, Src, Avail);
-//			puts("A5");
 			gained(Avail);
-//			puts("A6");
 			Need -= Avail;
-//			puts("A7");
 			Src += Avail;
 			if (Need <= 0) return;
-//			puts("A8");
 		};
-//		puts("A9");
-	}
-	
-	PicoMessage AskUnused () {
-		char* H = Head; // could this go invalid?
-		char* T = Tail;
-		int L = (int)(T - H);
-		if (H >= T)
-			L = (int)(SectionEnd - H);
-		if (L>0)
-			return {H, L};
-		return {};
 	}
 	
 	bool Get (char* Dest, int N) {
 		while (auto Msg = AskUsed()) {
-			int B = std::min(Msg.Length, N); // 🕷️ 🕷️
+			int B = std::min(Msg.Length, N); // 🕷️_🕷️
 			memcpy(Dest, Msg.Data, B);
 			Dest += B;
 			N -= B; // 🕷️
@@ -294,19 +256,21 @@ struct PicoComms : PicoCommsBase {
 	int					LengthBuff;
 	PicoBuff			Reading;
 	PicoBuff			Sending;
+	PicoDate			WarnAfter;
 	
 	PicoComms (int noise, bool isparent) {
 		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0;
 		Conf = {};
 		Conf.Name = isparent?"Parent":"Child";
 		Conf.Noise = noise;
+		Conf.BackedUpWarningPeriod = 1;
 		Conf.SendTimeOut = 10.0f;
-		if (!Sending.Alloc(1024*4, "Send") or !Reading.Alloc(1024*4, "Read"))
+		if (!Sending.Alloc(12, "Send") or !Reading.Alloc(12, "Read"))
 			failed(ENOBUFS); // could probably make the readbuff smaller, and always copy into
 	}						 // an malloced data for the next msg.
 	
 	~PicoComms () { 
-		Unsocket();
+		really_close();
 		SayEvent("Deleted");
 	}
 //
@@ -371,7 +335,7 @@ struct PicoComms : PicoCommsBase {
 		T = std::min(T, 54321000.0f); // 1.5 years?
 		PicoDate Final = PicoGetDate() + (PicoDate)(T*65536.0f);
 		timespec ts = {0, 1000000}; int n = T*16000;
-		for ( int i = 0;  Socket and !M and i < n;   i++) {
+		for ( int i = 0;  !M and i < n and !(HalfClosed&1);   i++) {
 			nanosleep(&ts, 0);
 			if (PicoGetDate() > Final) break;
 			M = get_sub();
@@ -402,19 +366,33 @@ struct PicoComms : PicoCommsBase {
 
 //// INTERNALS ////
 	
+	void try_warn_backed_up () {
+		auto Now = PicoGetDate();
+		char abc[4];
+		if (WarnAfter and Now > WarnAfter)
+			if (recv(Socket, abc, 1, MSG_NOSIGNAL|MSG_DONTWAIT|MSG_PEEK) > 0)
+				SayEvent("SocketBackedUp. Please call PicoMsgGet!");
+		WarnAfter = Now + (PicoDate)(Conf.BackedUpWarningPeriod*65536.0f); // 1 second?
+	}
+	
+	
 	void do_reading () {
 		if (HalfClosed&1) return;
-		
 		if (!Reading.WorkerThread.enter()) return;
+		
+		int Attempts = 0;
 		while ( auto Msg = Reading.AskUnused() ) {
+			Attempts++;
 			int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount > 0) {
-				if (CanSayDebug()) Say("|recv|", "", Amount);
+				if (CanSayDebug())
+					Say("|recv|", "", Amount);
 				Reading.gained(Amount);
 				timespec ts = {0, 10000}; nanosleep(&ts, 0); // why do we need this???
 			} else if (!io_pass(Amount, 1))
 				break;
 		}
+		if (!Attempts) try_warn_backed_up();
 		Reading.WorkerThread.unlock();
 	}
 	
@@ -474,23 +452,26 @@ struct PicoComms : PicoCommsBase {
 		for (int i = PicoThreadCount; i < 1; i++) {
 			pthread_t T = 0;
 			if (pthread_create(&T, 0, pico_worker, 0) or pthread_detach(T)) {
-				if (i == 0) return disconnect("Thread Failed"); // 1 thread is still OK.
+				if (i == 0) {
+					Say("Thread Failed");
+					return really_close(); // 1 thread is still OK.
+				}
 			}
 		}
 		return true;
 	}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
 
-	void* disconnect (const char* Why) {
-		if (HalfClosed>=3) return 0;
-		if (!Err) Err = ENOTCONN; // this blocks sending! but not reading.
-		HalfClosed = 3;
-		return SayEvent("Disconnect", Why);
-	}
 
+	void ask_close() {
+		if (HalfClosed>=3) return;
+
+		if (!Err) Err = ENOTCONN;
+		HalfClosed = 3;
+		SayEvent("Disconnecting");
+	}
+	
 	void destroy () {
-		disconnect(!Err?"Successful":"");
-		RemoveComm();
-		decr();
+		ask_close(); decr();
 	}
 
 	void decr() {
@@ -502,7 +483,7 @@ struct PicoComms : PicoCommsBase {
 		if (!Err) {
 			if (err == EPIPE and HalfClosed) {
 				err = ENOTCONN;
-				SayEvent("Closed Gracefully");
+				SayEvent("ClosedGracefully");
 			} else {
 				SayEvent(PicoFailActions[Action], strerror(err));
 			}
@@ -514,9 +495,9 @@ struct PicoComms : PicoCommsBase {
 		
 	bool io_pass (int Amount, int Half) {
 		if (!Amount) {
-			if (!HalfClosed) SayEvent("Denied", PicoFailActions[Half]);
+//			if (!HalfClosed) SayEvent(PicoFailActions[Half], "Side Closed");
 			HalfClosed |= Half;
-			return (HalfClosed >= 3) and failed(ENOTCONN, Half);
+			return (HalfClosed >= 3) and failed(EPIPE, Half);
 		}
 		int e = errno;
 //		if (CanSayDebug()) Say("Pass", strerror(e), Half);
@@ -525,20 +506,21 @@ struct PicoComms : PicoCommsBase {
 		return failed(e, Half);
 	}
 	
-	void Unsocket() {
-		if (!Socket) return; 
+	bool really_close() {
+		if (!Socket) return false; 
 		Socket = close(Socket)&0;
 		HalfClosed = -1;
-		if (CanSayDebug()) Say("Closing");
+		RemoveComm();
+		return CanSayDebug() and Say("Closing");
 	}
 
 	PicoComms* io () {
+		auto N = NextComm();
 		if (Socket) {
 			do_reading();
 			do_sending();
-			if (HalfClosed>=3) Unsocket();
+			if (HalfClosed>=3) really_close();
 		}
-		auto N = NextComm();
 		decr(); 
 		return N;
 	}
@@ -581,6 +563,10 @@ extern "C" PicoComms* PicoMsgCommsPair (PicoComms* M, int Noise=PicoNoiseEvents)
 
 extern "C" void PicoMsgDestroy (PicoComms* M) _pico_code_ (
 	if (M) M->destroy();
+)
+
+extern "C" void PicoMsgClose (PicoComms* M) _pico_code_ (
+	M->ask_close();
 )
 
 extern "C" int PicoMsgFork (PicoComms* M) _pico_code_ (

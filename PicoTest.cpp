@@ -1,7 +1,7 @@
 
-// todo: fool around with error handling
-// handle bigger data
 // can we remove the sleep during read?
+// fix the warn-after logic!
+// make the list own it
 
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"
@@ -12,7 +12,7 @@ using std::vector;
 
 void* Query (PicoComms* M) {
 	M->Conf.Name = "Query";
-	M->Conf.Noise = PicoNoiseAll;
+//	M->Conf.Noise = PicoNoiseAll;
 	PicoMsgSendStr(M, "mary had a little lamb");
 	const int Stack = 10; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -21,6 +21,7 @@ void* Query (PicoComms* M) {
 	}
 	
 	vector<PicoMessage> Sent;
+	vector<PicoMessage> Got;
 	char* abc = &abcd[0];
 	int Remain = Stack*Pudge;
 	while (Remain > 0) {
@@ -30,8 +31,10 @@ void* Query (PicoComms* M) {
 		if (n > Remain) n = Remain;
 		Remain -= n;
 		Sent.push_back({abc, n});
-		PicoMsgSay(M, "User Send", "", n);
 		PicoMsgSend(M, {abc, n}, PicoSendCanTimeOut);
+		auto Back = PicoMsgGet(M);
+		if (Back)
+			Got.push_back(Back);
 		abc += n;
 	}
 	
@@ -40,11 +43,17 @@ void* Query (PicoComms* M) {
 	}
 
 	PicoMsgSay(M, "Comparing", "", (int)Sent.size());
+	
+	while (auto Back = PicoMsgGet(M, 7*(Sent.size() > Got.size()))) {
+		Got.push_back(Back);
+	}
+
+	if (int Diff = (int)(Sent.size() - Got.size()); Diff) 
+		return PicoMsgSay(M, "Missing Responses: ", "", Diff);
 
 	for (int i = 0; i < Sent.size(); i++) {
 		auto& v = Sent[i];
-		auto OK = PicoMsgGet(M, 7.0);
-		if (!OK)								return PicoMsgSay(M, "Exit: GotNothing");
+		auto& OK = Got[i];
 		if (OK.Length != v.Length)				return PicoMsgSay(M, "Exit: BadLength");
 		int diff = memcmp(v.Data, OK.Data, v.Length);
 		if (diff)								return PicoMsgSay(M, "Exit: BadContents");
@@ -52,6 +61,7 @@ void* Query (PicoComms* M) {
 		PicoMsgSay(M, "Passed", "", i+1);
 		free(OK.Data);
 	}
+	PicoMsgClose(M);
 	PicoMsgSay(M, "Exit: Tests Passed!");
 	return 0;
 }
@@ -59,12 +69,13 @@ void* Query (PicoComms* M) {
 
 void Respond (PicoComms* M) {
 	M->Conf.Name = "Respond";
-	M->Conf.Noise = PicoNoiseEvents;
+//	M->Conf.Noise = PicoNoiseDebug;
 	auto Mary = PicoMsgGet(M, 6.0);
 	if (!Mary) return;
 	PicoMsgSay(M, "WasAsked", Mary.Data);
 	free(Mary.Data);
 	
+	int n = 0;
 	while (!PicoMsgErr(M)) {
 		auto Msg = PicoMsgGet(M, 2);
 		if (!Msg) break;
@@ -74,8 +85,9 @@ void Respond (PicoComms* M) {
 		}
 		PicoMsgSend(M, Msg, PicoSendCanTimeOut);
 		free(Msg.Data);
+		n++;
 	}
-	PicoMsgSay(M, "End");
+	PicoMsgSay(M, "Responses Given:", "", n);
 }
 
 
@@ -199,12 +211,14 @@ int TestThread (PicoComms* C) {
 
 void TestBuffers() {
 	PicoBuff B;
-	B.Alloc(28, "🕷️"); // we need a lot of spiddles for this.
+	B.Alloc(5, "🕷️"); // we need a lot of spiddles for this.
 	// like a lot.
-	for (int i = 0; i < 5; i++)
+	for (int i = 0; i < 6; i++)
 		B.append_sub("hello", 5);
 	B.lost(10);
 	B.append_sub("biggoodbye", 10);
+	B.lost(5);
+	B.append_sub("hugs", 4);
 }
 
 
