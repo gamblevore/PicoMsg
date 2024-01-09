@@ -9,15 +9,24 @@
 #include <vector>
 using std::vector;
 
+uint hash (uint x) {
+	x ^= x >> 16;
+	x *= UINT32_C(0x7feb352d);
+	x ^= x >> 15;
+	x *= UINT32_C(0x846ca68b);
+	x ^= x >> 16;
+	return x;
+}
+
 
 void* Query (PicoComms* M) {
 	M->Conf.Name = "Query";
-//	M->Conf.Noise = PicoNoiseAll;
+	M->Conf.Noise = PicoNoiseAll;
 	PicoMsgSendStr(M, "mary had a little lamb");
-	const int Stack = 10; const int Pudge = 4096;
+	const int Stack = 17; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
-		abcd[i] = rand();
+		abcd[i] = (char)(hash(i)%26)+'A';
 	}
 	
 	vector<PicoMessage> Sent;
@@ -27,8 +36,9 @@ void* Query (PicoComms* M) {
 	while (Remain > 0) {
 		if (PicoMsgErr(M)) return PicoMsgSay(M, "Exit: CantSendAll");
 
-		int n = rand() % Pudge;
+		int n = hash(Remain) % Pudge;
 		if (n > Remain) n = Remain;
+		if (n < 1) n = 1;
 		Remain -= n;
 		Sent.push_back({abc, n});
 		PicoMsgSend(M, {abc, n}, PicoSendCanTimeOut);
@@ -69,7 +79,7 @@ void* Query (PicoComms* M) {
 
 void Respond (PicoComms* M) {
 	M->Conf.Name = "Respond";
-//	M->Conf.Noise = PicoNoiseDebug;
+	M->Conf.Noise = PicoNoiseAll;
 	auto Mary = PicoMsgGet(M, 6.0);
 	if (!Mary) return;
 	PicoMsgSay(M, "WasAsked", Mary.Data);
