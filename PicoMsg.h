@@ -46,16 +46,11 @@ struct 			PicoMessageConfig  { const char* Name; int Noise; float SendTimeOut; i
 	#include <csignal>
 	#include <atomic>
 	#include <algorithm>
+	#include <deque>
 
-
-using std::atomic_bool; using std::atomic_int; using std::atomic_uint; 
-struct PicoTrousersLocker {
-	struct PicoTrousers& Lock; 
-	~PicoTrousersLocker ();
-};
 
 struct PicoTrousers { // only one person can wear them at a time.
-	atomic_bool Value;
+	std::atomic_bool Value;
 	PicoTrousers  () {Value = false;}
 	operator bool () {return Value;}
 	void operator = (bool b) {Value = b;}
@@ -67,21 +62,9 @@ struct PicoTrousers { // only one person can wear them at a time.
 	void unlock () {
 		Value = false;
 	}
-	PicoTrousersLocker lock () {
+	void lock () {
 		while (!enter()); // spin
-		return {*this};
 	}
-};
-
-PicoTrousersLocker::~PicoTrousersLocker () {Lock.unlock();}
-
-
-struct PicoRange {
-	uint64_t Range;	
-	PicoRange (uint64_t R = 0) {Range = R;}
-	int Length () {return Range&0xFFFFffff;}
-	int Start () {return Range>>32;}
-	void Set (uint64_t Start, uint64_t Length) {Range = (Start<<32)|Length;}
 };
 
 
@@ -107,7 +90,7 @@ static void pico_sleep (float S) {
 
 PicoTrousers PicoCommsLocker;
 struct PicoCommsBase {
-	atomic_int				RefCount;
+	std::atomic_int			RefCount;
     PicoCommsBase*			Next;
     PicoCommsBase*			Prev;
 	PicoMessageConfig		Conf;
@@ -115,18 +98,19 @@ struct PicoCommsBase {
 	PicoCommsBase () { Prev = this; Next = 0;}
 	
 	void AddComm (PicoCommsBase* New) {
-		auto L = PicoCommsLocker.lock();
+		PicoCommsLocker.lock();
 		PicoCommsBase* N = Next;
 		if (N)
 			N->Prev = New;
 		New->Next = N;
 		New->Prev = this;
 		Next = New;
+		PicoCommsLocker.unlock();
 	}
 	
 	;;;/*_*/;;;   // <-- a spider that ehlps you do async work
 	void RemoveComm () {
-		auto L = PicoCommsLocker.lock();
+		PicoCommsLocker.lock();
 		PicoCommsBase* N = Next;
 		PicoCommsBase* P = Prev;
 		if (N)
@@ -134,30 +118,32 @@ struct PicoCommsBase {
 		P->Next = N;
 		Next = 0;
 		Prev = 0;
+		PicoCommsLocker.unlock();
 	}
 	
 	PicoComms* NextComm () {
-		auto L = PicoCommsLocker.lock();
+		PicoCommsLocker.lock();
 		auto N = Next;
 		if (N)
 			N->RefCount++;
+		PicoCommsLocker.unlock();
 		return (PicoComms*)N;
 	}
 };
 
 
-static	PicoCommsBase	pico_list;
-static	PicoDate		pico_last_activity;
-static	void*			pico_worker (void* obj);
-static	atomic_int		pico_thread_count;
-static	const char*		pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
+static	PicoCommsBase		pico_list;
+static	PicoDate			pico_last_activity;
+static	void*				pico_worker (void* obj);
+static	std::atomic_int		pico_thread_count;
+static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 
 
 struct PicoBuff {
 	const char*			Name;
 	char*				SectionStart;
-	atomic_uint			Tail;
-	atomic_uint			Head;
+	std::atomic_uint	Tail;
+	std::atomic_uint	Head;
 	int					Size;
 	PicoTrousers		WorkerThread;
 	
@@ -166,7 +152,11 @@ struct PicoBuff {
 	
 	bool Alloc (int bits, const char* name) { // 🕷️
 		Name = name;
-		SectionStart = (char*)calloc(1<<bits, 1); if (!SectionStart) return false;
+		while (true) {
+			if (bits < 10) return false;
+			if ((SectionStart = (char*)malloc(1<<bits))) break;
+			bits--; 
+		}
 		Head = 0; Tail = 0;
 		Size = 1<<bits;
 		return true;
@@ -252,23 +242,26 @@ struct PicoBuff {
 static char PicoCloseData[4] = {};
 
 struct PicoComms : PicoCommsBase {
-	int					Socket;
-	unsigned char		Err;
-	unsigned char		HalfClosed;
-	bool				IsParent;
-	int					LengthBuff;
-	PicoBuff			Reading;
-	PicoBuff			Sending;
+	int						Socket;
+	unsigned char			Err;
+	char					HalfClosed;
+	bool					IsParent;
+	int						LengthBuff;
+	std::deque<PicoMessage>	TheQueue;
+	PicoBuff				Reading;
+	PicoBuff				Sending;
 	
-	PicoComms (int noise, bool isparent) {
-		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0;
+	PicoComms (int noise, bool isparent, int Size) {
+		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0;
 		Conf = {};
 		Conf.Name = isparent?"Parent":"Child";
 		Conf.Noise = noise;
 		Conf.SendTimeOut = 10.0f;
-		if (!Sending.Alloc(12, "Send") or !Reading.Alloc(12, "Read"))
-			failed(ENOBUFS); // could probably make the readbuff smaller, and always copy into
-	}						 // an malloced data for the next msg.
+		int Bits = 31 - __builtin_clz(Size);
+		Bits += (1<<Bits < Size);
+		if (!Sending.Alloc(Bits, "Send") or !Reading.Alloc(Bits, "Read"))
+			failed(ENOBUFS);
+	}
 	
 	~PicoComms () { 
 		really_close();
@@ -278,7 +271,7 @@ struct PicoComms : PicoCommsBase {
 	PicoComms* Pair (int Noise) {
 		int Socks[2] = {};
 		if (!pico_start() or !get_pair_of(Socks)) return 0;
-		PicoComms* Rz = new PicoComms(Noise, false);
+		PicoComms* Rz = new PicoComms(Noise, false, Reading.Size);
 		add_conn(Socks[0]);
 		Rz->add_conn(Socks[1]);
 		return Rz;
@@ -306,19 +299,13 @@ struct PicoComms : PicoCommsBase {
 		return !(HalfClosed & 2) and Sending.Length() > 0;	
 	}
 	
-	bool queue_sub (const char* msg, int n) {
-		if (!Sending.AppendMsg(msg, n)) return false;
-		if (CanSayDebug()) Say("SendQueued", "", n);
-		return true;
-	}
-	
 	bool QueueSend (const char* msg, int n, int Policy) {
 		if (HalfClosed&2) return false;
 		if (queue_sub(msg, n)) return true;
 		if (n+4 > Sending.Size)
-			return SayEvent("Message too large to Send!");
+			return SayEvent("CantSend: Message too large!");
 		if (Policy == PicoSendGiveUp)
-			return (!Conf.SendFailedCount++) and SayEvent("No Buffer For Send");
+			return (!Conf.SendFailedCount++) and SayEvent("CantSend: BufferFull");
 		
 		PicoDate Final = PicoGetDate() + (PicoDate)(Conf.SendTimeOut*65536.0f);
 		while (PicoGetDate() < Final) {
@@ -327,7 +314,7 @@ struct PicoComms : PicoCommsBase {
 			if (queue_sub(msg, n)) return true;
 		}
 		
-		return (!Conf.SendFailedCount++) and SayEvent("Send TimedOut");
+		return (!Conf.SendFailedCount++) and SayEvent("CantSend: TimedOut");
 	}
 
 	PicoMessage Get (float T = 0.0) {
@@ -352,7 +339,7 @@ struct PicoComms : PicoCommsBase {
 		return nullptr;
 	}
 
-	bool CanSayDebug () {return Conf.Noise & (PicoNoiseDebugChild << IsParent);}
+	inline bool CanSayDebug () {return Conf.Noise & (PicoNoiseDebugChild << IsParent);}
 	
 	void* Say (const char* A, const char* B="", int Iter=0) {
 		const char* S = IsParent?"Us":"Them";
@@ -369,6 +356,10 @@ struct PicoComms : PicoCommsBase {
 
 //// INTERNALS ////
 	
+	bool queue_sub (const char* msg, int n) {
+		return Sending.AppendMsg(msg, n)); // in case I wanna put debug tests here.
+	}
+
 	void do_reading () {
 		if (HalfClosed&1) return;
 		if (!Reading.WorkerThread.enter()) return;
@@ -379,7 +370,6 @@ struct PicoComms : PicoCommsBase {
 				if (CanSayDebug())
 					Say("|recv|", "", Amount);
 				Reading.gained(Amount);
-				timespec ts = {0, 10000}; nanosleep(&ts, 0); // why do we need this???
 			} else if (!io_pass(Amount, 1))
 				break;
 		}
@@ -391,10 +381,8 @@ struct PicoComms : PicoCommsBase {
 		if (HalfClosed&2 or !Remain) return;
 		
 		if (!Sending.WorkerThread.enter()) return;
-		if (CanSayDebug()) Say("|tosend|", "", Remain);
 		while ( auto Msg = Sending.AskUsed() ) {
-			int n = std::min(Msg.Length, 1*1024); // can stall otherwise
-			int Amount = (int)send(Socket, Msg.Data, n, MSG_NOSIGNAL|MSG_DONTWAIT);
+			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
   			if (Amount > 0) {
 				if (CanSayDebug()) Say("|send|", "", Amount);
 				Sending.lost(Amount);
@@ -449,18 +437,19 @@ struct PicoComms : PicoCommsBase {
 	}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
 
 
-	void ReportBuffers () {
-		if (!CanSayDebug()) return;
-		if (Sending.Length()) Say("Sending", "Still Contains", Sending.Length());
-		if (Reading.Length()) Say("Reading", "Still Contains", Reading.Length());
+	void ReportClosedBuffers () {
+		if (CanSayDebug() and HalfClosed != -1 ) {
+			if (Sending.Length()) Say("Sending", "Still Contains", Sending.Length());
+			if (Reading.Length()) Say("Reading", "Still Contains", Reading.Length());
+		}
+		HalfClosed = -1;
 	}
 	
 	void AskClose () {
 		if (HalfClosed>=3) return;
 
 		if (!Err) Err = ENOTCONN;
-		HalfClosed = 3;
-		ReportBuffers();
+		ReportClosedBuffers();
 		SayEvent("Disconnecting");
 	}
 	
@@ -501,9 +490,8 @@ struct PicoComms : PicoCommsBase {
 	bool really_close() {
 		if (!Socket) return false; 
 		Socket = close(Socket)&0;
-		HalfClosed = -1;
+		ReportClosedBuffers();
 		RemoveComm();
-		ReportBuffers();
 		return CanSayDebug() and Say("Closing");
 	}
 
@@ -547,8 +535,8 @@ static void* pico_worker (void* T) {
 
 /// C-API ///
 /// **initialisation / destruction** ///
-extern "C" PicoComms* PicoMsgComms (int Noise=PicoNoiseEvents)  _pico_code_ (
-	return new PicoComms(Noise, true);
+extern "C" PicoComms* PicoMsgComms (int Noise=PicoNoiseEvents, int Size=1024*1024)  _pico_code_ (
+	return new PicoComms(Noise, true, Size);
 )
 
 extern "C" PicoComms* PicoMsgCommsPair (PicoComms* M, int Noise=PicoNoiseEvents) _pico_code_ (

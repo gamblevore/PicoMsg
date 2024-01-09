@@ -19,11 +19,11 @@ uint hash (uint x) {
 }
 
 
-void* Query (PicoComms* M) {
+void* ThreadQuery (PicoComms* M) {
 	M->Conf.Name = "Query";
 	M->Conf.Noise = PicoNoiseAll;
 	PicoMsgSendStr(M, "mary had a little lamb");
-	const int Stack = 17; const int Pudge = 4096;
+	const int Stack = 30; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
 		abcd[i] = (char)(hash(i)%26)+'A';
@@ -77,7 +77,7 @@ void* Query (PicoComms* M) {
 }
 
 
-void Respond (PicoComms* M) {
+void ThreadRespond (PicoComms* M) {
 	M->Conf.Name = "Respond";
 	M->Conf.Noise = PicoNoiseAll;
 	auto Mary = PicoMsgGet(M, 6.0);
@@ -161,23 +161,18 @@ int TestIntense (PicoComms* C) {
 		char Out[20] = {}; memset(Out, -1, sizeof(Out));
 		PicoMessage Snd = {Out};
 		PicoMsgSay(C, "Asks intensely");
-		for (int i = 0; i < 100000; i++) {
+		int MaxTests = 100000;
+		for (int i = 0; i < MaxTests; i++) {
 			Snd.Length = TestWrite(Out, i, 1);
-			if (!PicoMsgSend(C, Snd)) {
+			if (!PicoMsgSend(C, Snd))
 				return !PicoMsgSay(C, "Exitting Sadly");
-			}
 			PicoMsgSay(C, "Sending", Snd.Data, i);
-			TestIntenseCompare(C, 0);
+			while (TestIntenseCompare(C, 0)) {;}
 		}
 		PicoMsgSay(C, "AllSent!");
-		while (TestIntenseCompare(C, 10)) {;}
+		while (RecIndex < MaxTests and TestIntenseCompare(C, 10)) {;}
 		PicoMsgSay(C, "strings compared", "", RecIndex);
-		sleep(1);
-		// OK... so how do I solve this?
-		// it seems like its ending after a certain amount of time
-		// with no explaination why. the "Fixer" side is being blocked to read
-		// that means... noting is being sent. Is that true? And why would
-		// that happen? Did we quit???? DID WE?
+		PicoMsgClose(C);
 
 	} else {
 		C->Conf.Name = "Fixer";
@@ -189,8 +184,9 @@ int TestIntense (PicoComms* C) {
 			for (int j = 0; j < n; j++)
 				Out[j] = D[j] - 1;
 			Out[n] = 0;
-//			printf("    %i: %s(%i) >> %s\n", Back, D, n, Out);
-			PicoMsgSend(C, Msg);
+
+			if (!PicoMsgSend(C, Msg))
+				return !PicoMsgSay(C, "Exitting Sadly");
 			free(D);
 			Back++;
 			if (PicoMsgErr(C)) break;
@@ -211,9 +207,9 @@ int TestThread (PicoComms* C) {
 	if (PID < 0)
 		return -PID;
 	if (PID)
-		Query(C);
+		ThreadQuery(C);
 	  else
-		Respond(C);
+		ThreadRespond(C);
 	if (PID) sleep(4); // let the child exit
 	return 0;	
 }
