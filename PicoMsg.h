@@ -75,9 +75,9 @@ struct PicoTrousers { // only one person can wear them at a time.
 
 typedef int64_t	PicoDate;  // 16 bits for small stuff
 PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
-    NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
-    S <<= 16;
-    return S + NS;
+	NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
+	S <<= 16;
+	return S + NS;
 }
 
 PicoDate PicoGetDate( ) {
@@ -96,8 +96,8 @@ static void pico_sleep (float S) {
 PicoTrousers PicoCommsLocker;
 struct PicoCommsBase {
 	std::atomic_int			RefCount;
-    PicoCommsBase*			Next;
-    PicoCommsBase*			Prev;
+	PicoCommsBase*			Next;
+	PicoCommsBase*			Prev;
 	PicoConfig				Conf;
 	
 	PicoCommsBase () { Prev = this; Next = 0;}
@@ -415,7 +415,7 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	bool acquire_msg () {
-		int L = LengthBuff; 
+		int L = LengthBuff;
 		if (!L) {
 			if (Reading.Length() < 4) return false;
 			Reading.Get((char*)&LengthBuff, 4);
@@ -429,8 +429,7 @@ struct PicoComms : PicoCommsBase {
 		int QS = L + sizeof(PicoMessage)*2;
 		if (Conf.QueueBytesRemaining < QS)
 			return (!Conf.ReadFullCount++) and SayEvent("CantRead: BufferFull");;
-			
-
+		
 		if (char* Data = (char*)malloc(L); Data) {
 			Reading.Get(Data, L);
 			LengthBuff = 0;
@@ -544,8 +543,7 @@ static void pico_work_comms () {
 	while (M)
 		M = M->io();
 	
-	float S = 1000.0f;
-	S = (PicoGetDate() - pico_last_activity) * 0.000015258789f; // seconds
+	float S = (PicoGetDate() - pico_last_activity) * 0.000015258789f; // seconds
 	S = std::clamp(S, 0.03f, 0.9999f);
 	S = S*S;
 	pico_sleep(S);
