@@ -238,10 +238,11 @@ int main (int argc, const char * argv[]) {
 	TestBuffers();
 	auto C = PicoMsgComms();
 	int rz = 0;
-	argv[0] = "1";
-	if (strcmp(argv[0], "1")==0)
+	const char* S = argv[1];
+	if (!S) S = "3";
+	if (strcmp(S, "1")==0)
 		rz = TestIntense(C);
-	 else if (strcmp(argv[0], "2")==0)
+	 else if (strcmp(S, "2")==0)
 		rz = TestPair(C);
 	 else
 		rz = TestThread(C);

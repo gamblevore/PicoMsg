@@ -49,7 +49,6 @@ struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int Send
 	#include <sched.h>
 	#include <errno.h>
 	#include <sys/socket.h>
-	#include <csignal>
 	#include <algorithm>
 	#include <deque>
 
@@ -244,8 +243,6 @@ struct PicoBuff {
 
 
 
-static char PicoCloseData[4] = {};
-
 struct PicoComms : PicoCommsBase {
 	int						Socket;
 	unsigned char			Err;
@@ -356,6 +353,17 @@ struct PicoComms : PicoCommsBase {
 		return nullptr;
 	}
 	
+	void AskClose () {
+		if (HalfClosed>=3) return;
+
+		if (!Err) Err = ENOTCONN;
+		ReportClosedBuffers();
+		SayEvent("Disconnecting");
+	}
+	
+	void Destroy () {
+		AskClose(); decr();
+	}
 
 
 //// INTERNALS ////
@@ -472,18 +480,6 @@ struct PicoComms : PicoCommsBase {
 			Say("Read", "", Reading.Head);
 		}
 		HalfClosed = -1;
-	}
-	
-	void AskClose () {
-		if (HalfClosed>=3) return;
-
-		if (!Err) Err = ENOTCONN;
-		ReportClosedBuffers();
-		SayEvent("Disconnecting");
-	}
-	
-	void Destroy () {
-		AskClose(); decr();
 	}
 
 	void decr () {

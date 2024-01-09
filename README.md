@@ -13,6 +13,12 @@ PicoMsg is simpler and smaller than nanomsg and zeromq, at around 450 SLOC.
 
 PicoMsg uses two threads behind the scenes, to do read and writes. 
 
+### Building
+
+	cd /Path/To/Proj
+	g++ PicoTest.cpp -o picotest -std=c++20
+
+Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`picotest 3`".
 
 ### Base API
 
