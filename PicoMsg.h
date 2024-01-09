@@ -157,9 +157,9 @@ struct PicoBuff {
 	bool Alloc (int bits, const char* name) { // 🕷️
 		Name = name;
 		while (true) {
-			if (bits < 10) return false;
 			if ((SectionStart = (char*)malloc(1<<bits))) break;
 			bits--; 
+			if (bits < 10) return false;
 		}
 		Head = 0; Tail = 0;
 		Size = 1<<bits;
@@ -256,6 +256,7 @@ struct PicoComms : PicoCommsBase {
 	
 	PicoComms (int noise, bool isparent, int Size) {
 		int Bits = 31 - __builtin_clz(Size);
+		if (Bits < 10) Bits = 10;
 		Bits += (1<<Bits < Size);
 		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0;
 		memset(&Conf, 0, sizeof(PicoConfig)); 
