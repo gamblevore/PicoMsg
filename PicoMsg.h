@@ -26,8 +26,8 @@
 #define PicoNoiseAll			15
 #define PicoSendGiveUp			0
 #define PicoSendCanTimeOut		1
-#ifndef PicoDesiredThreads
-	#define PicoSendCanTimeOut	1
+#ifndef PicoDesiredThreadCount
+	#define PicoDesiredThreadCount	2
 #endif
 
 struct			PicoComms;
@@ -456,7 +456,7 @@ struct PicoComms : PicoCommsBase {
 	
 	bool pico_start () {
 		pthread_t T = 0;
-		for (int i = pico_thread_count; i < PicoSendCanTimeOut; i++)
+		for (int i = pico_thread_count; i < PicoDesiredThreadCount; i++)
 			if (pthread_create(&T, 0, pico_worker, 0) or pthread_detach(T))
 				if (i == 0)
 					return !Say("Thread Failed") and really_close(); // 1 thread is still OK.
