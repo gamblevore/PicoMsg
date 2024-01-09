@@ -33,7 +33,7 @@
 struct			PicoComms;
 struct			PicoMessage { char* Data; int Length; operator bool () {return Data;}; };
 
-struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int LargestMsg; int TotalReceived; int TotalSent; std::atomic_int SendFullCount; std::atomic_int ReadFullCount; int QueueBytesRemaining; };
+struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; };
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
