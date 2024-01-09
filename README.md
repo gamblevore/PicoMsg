@@ -50,7 +50,7 @@ These functions are not always needed, but available in case you need them.
 
 **`void PicoMsgClose (PicoComms* M)`**   :   Closes the comms object. Does not destroy it. Useful if you have many places that might need to close the comms, but only one place that will destroy it. It acceptable to close a comms twice!
 
-**`bool PicoMsgStillSending (PicoComms* M)`**   :   Returns if the comms object is still in the business of sending. In this case you might not want to keep your app open while it is still sending.
+**`bool PicoMsgStillSending (PicoComms* M)`**   :   Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending.
     
 **`void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0);`**   :   Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name. (`Name` is settable via PicoMsgConfig).
     
