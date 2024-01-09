@@ -1,6 +1,10 @@
 # PicoMsg
 **Miniature Message Passing IPC System (Single Header C++ File)**
 
+### Licence:
+https://creativecommons.org/licenses/by/4.0/ I chose this licence, because I need to be attributed.
+
+### About
 I created PicoMsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
 
 PicoMsg is thread-safe as long as you use the single-producer, single-consumer approach. That is, you can make two threads, and one thread can freely talk to the other using PicoMsg, as long as each thread only talks to it's own `PicoComms` object.
