@@ -238,7 +238,7 @@ int main (int argc, const char * argv[]) {
 	TestBuffers();
 	auto C = PicoMsgComms();
 	int rz = 0;
-	argv[0] = "1";
+	argv[0] = "3";
 	if (strcmp(argv[0], "1")==0)
 		rz = TestIntense(C);
 	 else if (strcmp(argv[0], "2")==0)

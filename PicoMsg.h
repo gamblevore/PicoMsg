@@ -387,13 +387,9 @@ struct PicoComms : PicoCommsBase {
 		if (HalfClosed&2 or !Remain) return;
 		
 		if (!Sending.WorkerThread.enter()) return;
-		pollfd unblocker = {Socket, POLLOUT}; // send can STILL block even with MSG_DONTWAIT!
 		
-		while ( auto Msg = Sending.AskUsed() ) {
-			int n = std::min(Msg.Length, 4*1024); // will block if we send the entire thing, even with poll and MSG_NOSIGNAL!!!  What a terrible Unix API! We need 3 separate unblockers in place to make it not block!
-			int Poll = poll(&unblocker, 1, 0);
-			if (Poll <= 0) break;
-			int Amount = (int)send(Socket, Msg.Data, n, MSG_NOSIGNAL|MSG_DONTWAIT);
+		while ( auto Msg = Sending.AskUsed() ) { // send(MSG_DONTWAIT) does nothing on OSX. but we set non-blocking anyhow.
+			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
   			if (Amount > 0) {
 				if (CanSayDebug()) Say("|send|", "", Amount);
 				Sending.lost(Amount);
@@ -453,6 +449,7 @@ struct PicoComms : PicoCommsBase {
 	
 	void add_conn (int Sock) {
 		Socket = Sock;
+		fcntl(Socket, F_SETFL, fcntl(Sock, F_GETFL, 0) | O_NONBLOCK);
 		pico_list.AddComm(this);
 		SayEvent("Started");
 	}
