@@ -19,11 +19,12 @@ uint hash (uint x) {
 }
 
 
-void* ThreadQuery (PicoComms* M) {
+void* ThreadQuery (void* TM) {
+	PicoComms* M = (PicoComms*)TM;
 	M->Conf.Name = "Query";
 //	M->Conf.Noise = PicoNoiseAll;
 	PicoMsgSendStr(M, "mary had a little lamb");
-	const int Stack = 50; const int Pudge = 4096;
+	const int Stack = 49; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
 		abcd[i] = (char)(hash(i)%26)+'A';
@@ -74,16 +75,15 @@ void* ThreadQuery (PicoComms* M) {
 		free(OK.Data);
 	}
 	PicoMsgClose(M);
-	PicoMsgSay(M, "Exit: Tests Passed!");
-	return 0;
+	return PicoMsgSay(M, "Exit: Tests Passed!");
 }
 
 
-void ThreadRespond (PicoComms* M) {
+void* ThreadRespond (PicoComms* M) {
 	M->Conf.Name = "Respond";
 //	M->Conf.Noise = PicoNoiseAll;
 	auto Mary = PicoMsgGet(M, 6.0);
-	if (!Mary) return;
+	if (!Mary) return nullptr;
 	PicoMsgSay(M, "WasAsked", Mary.Data);
 	free(Mary.Data);
 	
@@ -104,6 +104,8 @@ void ThreadRespond (PicoComms* M) {
 	}
 	
 	PicoMsgSay(M, "Responses Given:", "", n);
+	PicoMsgDestroy(M);
+	return nullptr;
 }
 
 
@@ -203,20 +205,13 @@ int TestIntense (PicoComms* C) {
 			sleep(1);
 	}
 	
-	PicoMsgSay(C, "Acheived");
-	return 0;	
+	PicoMsgSay(C, "Acheived"); return 0;	
 }
 
-
 int TestThread (PicoComms* C) {
-	int PID = PicoMsgFork(C);
-	if (PID < 0)
-		return -PID;
-	if (PID)
-		ThreadQuery(C);
-	  else
-		ThreadRespond(C);
-	if (PID) sleep(4); // let the child exit
+	if (!PicoMsgThread(C, ThreadRespond)) return -1;
+	ThreadQuery(C);
+	sleep(4); // let ThreadRespond exit
 	return 0;	
 }
 

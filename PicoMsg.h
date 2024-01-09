@@ -73,6 +73,7 @@ struct PicoTrousers { // only one person can wear them at a time.
 
 
 typedef int64_t	PicoDate;  // 16 bits for small stuff
+typedef void* (*PicoThreadFn)(PicoComms* M);
 PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
 	NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
 	S <<= 16;
@@ -138,11 +139,16 @@ struct PicoCommsBase {
 
 static	PicoCommsBase		pico_list;
 static	PicoDate			pico_last_activity;
-static	void*				pico_worker (void* obj);
+static	void*				pico_worker (PicoComms* Dummy);
 static	std::atomic_int		pico_thread_count;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 
 
+// Upgrade: shared-mem "send" buff could reuse "Read" buff... so super-fast appends.
+// No need for recv/send anymore... just acquire_msg. Apart from that very little change!
+// PicoBuff would directly contain the data, also! And SectionStart would just come "after"
+// easy to share, then. Also good for shared-mem forks.
+ 
 struct PicoBuff {
 	const char*			Name;
 	char*				SectionStart;
@@ -275,16 +281,21 @@ struct PicoComms : PicoCommsBase {
 		SayEvent("Deleted");
 	}
 //
-	PicoComms* Pair (int Noise) {
+	PicoComms* InitPair (int Noise) {
 		int Socks[2] = {};
-		if (!pico_start() or !get_pair_of(Socks)) return 0;
+		if (!pico_start() or !get_pair_of(Socks)) return nullptr;
 		PicoComms* Rz = new PicoComms(Noise, false, Reading.Size);
 		add_conn(Socks[0]);
 		Rz->add_conn(Socks[1]);
 		return Rz;
 	}
 
-	pid_t Fork () {
+	bool InitThread (int Noise, PicoThreadFn fn) {
+		PicoComms* C = InitPair(Noise);
+		return C and thread_one(fn, C);
+	}
+
+	pid_t InitFork () {
 		int Socks[2] = {};
 		if (!get_pair_of(Socks)) return -errno;
 		pid_t pid = fork();
@@ -437,7 +448,7 @@ struct PicoComms : PicoCommsBase {
 		if (Reading.Length() < L) return false;
 		int QS = L + sizeof(PicoMessage)*2;
 		if (Conf.QueueBytesRemaining < QS)
-			return (!Conf.ReadFullCount++) and SayEvent("CantRead: BufferFull");;
+			return (!Conf.ReadFullCount++) and SayEvent("CantRead: BufferFull");
 		
 		if (char* Data = (char*)malloc(L); Data) {
 			Reading.Get(Data, L);
@@ -462,12 +473,17 @@ struct PicoComms : PicoCommsBase {
 		SayEvent("Started");
 	}
 	
+	bool thread_one (PicoThreadFn fn, PicoComms* M) {
+		pthread_t T = 0;   ;;;/*_*/;;;   // creeping upwards!!
+		if (!pthread_create(&T, nullptr, (void*(*)(void*))fn, M) and !pthread_detach(T))
+			return true;
+		return Say("Thread Failed");
+	}
+	
 	bool pico_start () {
-		pthread_t T = 0;
 		for (int i = pico_thread_count; i < PicoDesiredThreadCount; i++)
-			if (pthread_create(&T, 0, pico_worker, 0) or pthread_detach(T))
-				if (i == 0)
-					return !Say("Thread Failed") and really_close(); // 1 thread is still OK.
+			if (!thread_one(pico_worker, nullptr) and i == 0)
+				return really_close(); // 1 thread is still OK.
 
 		return true;
 	}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
@@ -499,7 +515,7 @@ struct PicoComms : PicoCommsBase {
 		}
 		Err = err;
 		HalfClosed = 3;
-		return 0;
+		return nullptr;
 	}
 		
 	bool io_pass (int Amount, int Half) {
@@ -547,7 +563,7 @@ static void pico_work_comms () {
 }
 
 
-static void* pico_worker (void* T) {
+static void* pico_worker (PicoComms* Dummy) {
 	pico_thread_count++;
 	pico_last_activity = PicoGetDate(); // get to work!
 	while (true) pico_work_comms();
@@ -560,17 +576,21 @@ static void* pico_worker (void* T) {
 
 /// C-API ///
 /// **initialisation / destruction** ///
-extern "C" PicoComms* PicoMsgComms (int Noise=PicoNoiseEvents, int Size=1024*1024)  _pico_code_ (
-	return new PicoComms(Noise, true, Size);
+extern "C" PicoComms* PicoMsgComms (int Noise=PicoNoiseEvents)  _pico_code_ (
+	return new PicoComms(Noise, true, 1024*1024);
 )
 
 extern "C" PicoComms* PicoMsgCommsPair (PicoComms* M, int Noise=PicoNoiseEvents) _pico_code_ (
-	return M->Pair(Noise);
+	return M->InitPair(Noise);
 )
 
 extern "C" int PicoMsgFork (PicoComms* M) _pico_code_ (
-	return M->Fork();
+	return M->InitFork();
 )
+
+extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn, int Noise=PicoNoiseEvents) _pico_code_ (
+	return M->InitThread(Noise, fn);
+) 
 
 extern "C" void PicoMsgDestroy (PicoComms* M) _pico_code_ (
 	if (M) M->Destroy();
