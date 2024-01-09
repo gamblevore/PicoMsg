@@ -21,9 +21,9 @@ uint hash (uint x) {
 
 void* ThreadQuery (PicoComms* M) {
 	M->Conf.Name = "Query";
-	M->Conf.Noise = PicoNoiseAll;
+//	M->Conf.Noise = PicoNoiseAll;
 	PicoMsgSendStr(M, "mary had a little lamb");
-	const int Stack = 30; const int Pudge = 4096;
+	const int Stack = 50; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
 		abcd[i] = (char)(hash(i)%26)+'A';
@@ -43,8 +43,10 @@ void* ThreadQuery (PicoComms* M) {
 		Sent.push_back({abc, n});
 		PicoMsgSend(M, {abc, n}, PicoSendCanTimeOut);
 		auto Back = PicoMsgGet(M);
-		if (Back)
+		if (Back) {
+			PicoMsgSay(M, "User Got:", "", Back.Length);
 			Got.push_back(Back);
+		}
 		abc += n;
 	}
 	
@@ -79,7 +81,7 @@ void* ThreadQuery (PicoComms* M) {
 
 void ThreadRespond (PicoComms* M) {
 	M->Conf.Name = "Respond";
-	M->Conf.Noise = PicoNoiseAll;
+//	M->Conf.Noise = PicoNoiseAll;
 	auto Mary = PicoMsgGet(M, 6.0);
 	if (!Mary) return;
 	PicoMsgSay(M, "WasAsked", Mary.Data);
@@ -87,8 +89,11 @@ void ThreadRespond (PicoComms* M) {
 	
 	int n = 0;
 	while (!PicoMsgErr(M)) {
-		auto Msg = PicoMsgGet(M, 2);
-		if (!Msg) break;
+		auto Msg = PicoMsgGet(M, 20);
+		if (!Msg) {
+			PicoMsgSay(M, "NoMoreInput", "", n);
+			break;
+		}
 
 		for (int i = 0; i < Msg.Length; i++) {
 			(Msg.Data)[i]++;
@@ -97,6 +102,7 @@ void ThreadRespond (PicoComms* M) {
 		free(Msg.Data);
 		n++;
 	}
+	
 	PicoMsgSay(M, "Responses Given:", "", n);
 }
 
@@ -191,7 +197,7 @@ int TestIntense (PicoComms* C) {
 			Back++;
 			if (PicoMsgErr(C)) break;
 		}
-		PicoMsgSay(C, "NoMoreInputs", "", Back);
+		PicoMsgSay(C, "NoMoreInput", "", Back);
 		
 		while (PicoMsgStillSending(C))
 			sleep(1);
@@ -232,7 +238,7 @@ int main (int argc, const char * argv[]) {
 	TestBuffers();
 	auto C = PicoMsgComms();
 	int rz = 0;
-	argv[0] = "3";
+	argv[0] = "1";
 	if (strcmp(argv[0], "1")==0)
 		rz = TestIntense(C);
 	 else if (strcmp(argv[0], "2")==0)
