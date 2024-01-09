@@ -40,8 +40,8 @@ void* ThreadQuery (PicoComms* M) {
 		if (n > Remain) n = Remain;
 		if (n < 1) n = 1;
 		Remain -= n;
-		Sent.push_back({abc, n});
-		PicoMsgSend(M, {abc, n}, PicoSendCanTimeOut);
+		Sent.push_back({n, abc});
+		PicoMsgSend(M, {n, abc}, PicoSendCanTimeOut);
 		auto Back = PicoMsgGet(M);
 		if (Back) {
 			PicoMsgSay(M, "User Got:", "", Back.Length);
@@ -165,7 +165,7 @@ int TestIntense (PicoComms* C) {
 	if (PID) {
 		C->Conf.Name = "Tester";
 		char Out[20] = {}; memset(Out, -1, sizeof(Out));
-		PicoMessage Snd = {Out};
+		PicoMessage Snd = {0, Out};
 		PicoMsgSay(C, "Asks intensely");
 		int MaxTests = 100000;
 		for (int i = 0; i < MaxTests; i++) {

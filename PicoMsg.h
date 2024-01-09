@@ -31,7 +31,7 @@
 #endif
 
 struct			PicoComms;
-struct			PicoMessage { char* Data; int Length; operator bool () {return Data;}; };
+struct			PicoMessage { int Length; char* Data; operator bool () {return Data;}; };
 
 struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; };
 
@@ -180,7 +180,7 @@ struct PicoBuff {
 		T &= B; H &= B; // 🕷️ / 🕷️
 		if (T >= H) // tail to head... or to size
 			H = S;
-		return {SectionStart+T, H-T}; // 🕷️  🕷️ 🕷️
+		return {H-T, SectionStart+T}; // 🕷️  🕷️ 🕷️
 	}
 	
 	PicoMessage AskUnused () {
@@ -190,7 +190,7 @@ struct PicoBuff {
 		T &= B; H &= B;
 		if (T > H) // head to size, or head to tail.
 			S = T;
-		return {SectionStart+H, S-H};
+		return {S-H, SectionStart+H};
 	}
 
 	void lost (int N) {
@@ -444,7 +444,7 @@ struct PicoComms : PicoCommsBase {
 			LengthBuff = 0;
 			Conf.QueueBytesRemaining -= QS;
 			QueueLocker.lock();
-			TheQueue.push_back({Data, L});
+			TheQueue.push_back({L, Data});
 			QueueLocker.unlock();
 			return true;
 		}
