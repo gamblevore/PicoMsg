@@ -34,11 +34,11 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 ### Initialisation / Destruction
 
-Start by calling `PicoMsgComms`, then call either the child, thread or fork function on it. Call the destroy  function when you are done with any comms object.
+Start by calling `PicoMsgComms`, then call either PicoMsgCommsChild, PicoMsgThread or PicoMsgFork on it. Call PicoMsgDestroy when you are done with any PicoComms.
 
 **`PicoComms* PicoMsgComms ()`**   :   Creates your message-passer.
 
-**`PicoComms* PicoMsgCommsChild (PicoComms* M)`**   :   Creates a child message-passer, and connects it to the parent. Only needed for threading, not forks. Don't call this on an already connected object!
+**`PicoComms* PicoMsgCommsChild (PicoComms* M)`**   :   Creates a child message-passer, and connects it to the parent. Only needed for threading, not forks.
 
 **`int PicoMsgThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it! A handier way to run PicoMsg. Check the PicoTest.cpp file for an example. 
 
