@@ -108,7 +108,7 @@ void* ThreadRespond (PicoComms* M) {
 
 
 int TestPair (PicoComms* C) {
-	auto C2 = PicoMsgCommsPair(C);
+	auto C2 = PicoMsgCommsChild(C);
 	if (C2) {
 		PicoMsgSendStr(C, "pear🍐🍐🍐test");
 		auto Msg = PicoMsgGet(C2, 2.0);

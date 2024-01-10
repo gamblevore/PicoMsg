@@ -24,16 +24,18 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 These are the functions you need to use PicoMsg:
 
-**`PicoComms* PicoMsgComms (int Flags=PicoNoiseEvents)`**   :   Creates your message-passer. You use this for inter-process-communications (IPC). You can get and send to this. Set Flags to 0 to make PicoMsg not print to stdout.
+**`PicoComms* PicoMsgComms ()`**   :   Creates your message-passer. You can get and send to this.
 
-**`PicoComms* PicoMsgCommsPair (PicoComms* M, int Flags=PicoNoiseEvents)`**   :   Creates the second message-passer, and connects it to the first.
+**`PicoComms* PicoMsgCommsChild (PicoComms* M)`**   :   Creates a child message-passer, and connects it to the parent. Only needed for threading, not forks. Don't call this on an already connected object!
+
+**`int PicoMsgThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it! A handier way to run PicoMsg. Check the PicoTest.cpp file for an example. 
 
 **`int PicoMsgFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg.
 
 **`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
 
 **`bool PicoMsgSend (PicoComms* M, PicoMessage Msg, float Timeout=0)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. `TimeOut` is in seconds.
-                                                                                                                                                
+
 **`bool PicoMsgSend (PicoComms* M, const char* Str, float Timeout=0)`**   :   Same as above, just a little simpler to use, if you have a c-string.
 
 **`PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0)`**   :   Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
@@ -67,8 +69,6 @@ These functions are not always needed, but available in case you need them.
     /* For Reporting Events. If the parent comms name is "Helper",
     then on close you will see "Parent.Helper: Closed Gracefully" in stdout. */
         
-        int         Noise; // described below
-            
         float       SendTimeOut;
     /* The number of seconds before a send will timeout
     (if the send is not instant). */
@@ -76,9 +76,12 @@ These functions are not always needed, but available in case you need them.
         int         QueueBytesRemaining;
     /* The allowed size for unread messages
     that are queued up for you. */
+
+        int         Noise;
+	/* The amount of printing to StdOut that PicoMsg Does. Described further below. */
     };
 
-The `Noise` value of the config, can be set to any of the below items. It can also be set on creating the comms object using PicoMsgComms.
+The `Noise` field, can be set to any of the below items. It can also be set on creating the comms object using PicoMsgComms. You can set it to silent, if you want PicoMsg to not be too "noisy" on StdOut. To set it to PicoNoiseDebug to be the noisiest.
 
     PicoSilent
     PicoNoiseDebugChild	

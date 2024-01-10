@@ -580,7 +580,7 @@ extern "C" PicoComms* PicoMsgComms ()  _pico_code_ (
 	return new PicoComms(PicoNoiseEvents, true, 1024*1024);
 )
 
-extern "C" PicoComms* PicoMsgCommsPair (PicoComms* M) _pico_code_ (
+extern "C" PicoComms* PicoMsgCommsChild (PicoComms* M) _pico_code_ (
 	return M->InitPair(PicoNoiseEvents);
 )
 
