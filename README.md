@@ -34,9 +34,9 @@ These are the functions you need to use PicoMsg:
 
 **`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
 
-**`bool PicoMsgSend (PicoComms* M, PicoMessage Msg, float Timeout=0)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. `TimeOut` is in seconds.
+**`bool PicoMsgSend (PicoComms* M, PicoMessage Msg, bool CanTimeOut=false)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. See the ["config"](#config) section about how to change the timeout.
 
-**`bool PicoMsgSend (PicoComms* M, const char* Str, float Timeout=0)`**   :   Same as above, just a little simpler to use, if you have a c-string.
+**`bool PicoMsgSend (PicoComms* M, const char* Str, bool CanTimeOut=false)`**   :   Same as above, just a little simpler to use, if you have a c-string.
 
 **`PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0)`**   :   Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
 
@@ -63,6 +63,9 @@ These functions are not always needed, but available in case you need them.
 **`void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0);`**   :   Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name. (`Name` is settable via PicoMsgConfig).
     
 **`PicoConfig* PicoMsgConf (PicoComms* M)`**    :   Gets the config struct. This lets you configure how your comms will work. Like noise, timeouts, name, and maximum unread-message queue size.
+
+
+## Config
 
     struct PicoMessageConfig {
         const char* Name;
