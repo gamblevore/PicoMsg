@@ -34,7 +34,7 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 ### Initialisation / Destruction
 
-Start by calling `PicoMsgComms`, then call either the child, thread or fork function on it. Call the destroy  function when you are done with any object. The other side will be notified that it is closed, but will also need PicoMsgDestroy called on it.
+Start by calling `PicoMsgComms`, then call either the child, thread or fork function on it. Call the destroy  function when you are done with any comms object.
 
 **`PicoComms* PicoMsgComms ()`**   :   Creates your message-passer.
 
@@ -44,7 +44,7 @@ Start by calling `PicoMsgComms`, then call either the child, thread or fork func
 
 **`int PicoMsgFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg.
 
-**`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
+**`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't). Destroying one side does not destroy the other, will also need PicoMsgDestroy called on it. But destroying one side does close the other, at least. So sends will be ignored.
 
 ### Communication
 
