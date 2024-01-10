@@ -36,7 +36,7 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 Start by calling `PicoMsgComms`, then call either the child, thread or fork function on it. Call the destroy  function when you are done with any object. The other side will be notified that it is closed, but will also need PicoMsgDestroy called on it.
 
-**`PicoComms* PicoMsgComms ()`**   :   Creates your message-passer. You can get and send to this.
+**`PicoComms* PicoMsgComms ()`**   :   Creates your message-passer.
 
 **`PicoComms* PicoMsgCommsChild (PicoComms* M)`**   :   Creates a child message-passer, and connects it to the parent. Only needed for threading, not forks. Don't call this on an already connected object!
 
