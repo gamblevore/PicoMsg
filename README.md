@@ -82,10 +82,10 @@ Use the config function to get the config struct. **`PicoConfig* PicoMsgConf (Pi
     that are queued up for you. */
 
         int         Noise;
-	/* The amount of printing to StdOut that PicoMsg Does. Described further below. */
+	/* The amount of printing to StdOut that PicoMsg does.*/
     };
 
-The `Noise` field, can be set to any of the below items. It can also be set on creating the comms object using PicoMsgComms. You can set it to silent, if you want PicoMsg to not be too "noisy" on StdOut. To set it to PicoNoiseDebug to be the noisiest.
+The `Noise` field, can be set to any of the below items. It can also be set on creating the comms object using PicoMsgComms. You can set it to silent, if you want PicoMsg to not be too "noisy" on StdOut. To set it to PicoNoiseAll to be the noisiest.
 
     PicoSilent
     PicoNoiseDebugChild	
