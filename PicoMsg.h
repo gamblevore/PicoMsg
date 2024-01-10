@@ -601,8 +601,8 @@ extern "C" bool PicoMsgSend (PicoComms* M, PicoMessage Msg, int Policy=PicoSendG
 	return (Msg and Msg.Length > 0) and M->QueueSend(Msg.Data, Msg.Length, Policy);
 )
 
-extern "C" bool PicoMsgSendStr (PicoComms* M, const char* Msg, float Time=0) _pico_code_ (
-	return M->QueueSend(Msg, (int)strlen(Msg)+1, Time);
+extern "C" bool PicoMsgSendStr (PicoComms* M, const char* Msg, bool Policy=PicoSendGiveUp) _pico_code_ (
+	return Msg and M->QueueSend(Msg, (int)strlen(Msg)+1, Policy);
 )
 
 extern "C" PicoMessage PicoMsgGet (PicoComms* M, float Time=0) _pico_code_ (
