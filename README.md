@@ -65,7 +65,7 @@ These functions are not always needed, but available in case you need them.
 **`PicoConfig* PicoMsgConf (PicoComms* M)`**    :   Gets the config struct. This lets you configure how your comms will work. Like noise, timeouts, name, and maximum unread-message queue size.
 
 
-## Config
+### Config
 
     struct PicoMessageConfig {
         const char* Name;
