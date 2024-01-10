@@ -30,9 +30,11 @@ PicoMsg is very open source, so if the default behaviour is not good enough for 
 
 Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`picotest 3`".
 
-### Base API
+# API
 
-These are the functions you need to use PicoMsg:
+### Initialisation / Destruction
+
+Start by calling `PicoMsgComms`, then call either the child, thread or fork function on it. Call the destroy  function when you are done with any object. The other side will be notified that it is closed, but will also need PicoMsgDestroy called on it.
 
 **`PicoComms* PicoMsgComms ()`**   :   Creates your message-passer. You can get and send to this.
 
@@ -43,6 +45,8 @@ These are the functions you need to use PicoMsg:
 **`int PicoMsgFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg.
 
 **`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
+
+### Communication
 
 **`bool PicoMsgSend (PicoComms* M, PicoMessage Msg, bool CanWait=false)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. If `CanWait` is false and there is no buffer space, this function returns `false`. If `CanWait` is true, it will block until the timeout is reached. See the ["configuration"](#Configuration) section about how to change the timeout.
 
