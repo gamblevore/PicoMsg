@@ -44,7 +44,7 @@ Start by calling `PicoMsgComms`, then call either `PicoMsgCommsChild`, `PicoMsgT
 
 **`int PicoMsgFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg.
 
-**`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't). Destroying one side does not destroy the other, will also need PicoMsgDestroy called on it. But destroying one side does close the other, at least. So sends will be ignored.
+**`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Destroying one side does not destroy the other, will also need PicoMsgDestroy called on it. But destroying one side does close the other, at least. So sends will be ignored.
 
 ### Communication
 
