@@ -34,9 +34,9 @@ These are the functions you need to use PicoMsg:
 
 **`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Accepts a `nil` PicoComms. (The others don't).
 
-**`bool PicoMsgSend (PicoComms* M, PicoMessage Msg, bool CanTimeOut=false)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. See the ["configuration"](#Configuration) section about how to change the timeout.
+**`bool PicoMsgSend (PicoComms* M, PicoMessage Msg, bool CanWait=false)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. If `CanWait` is false and there is no buffer space to send, this function returns `false`. If `CanWait` is true, it will block until the timeout is reached. See the ["configuration"](#Configuration) section about how to change the timeout.
 
-**`bool PicoMsgSend (PicoComms* M, const char* Str, bool CanTimeOut=false)`**   :   Same as above, just a little simpler to use, if you have a c-string.
+**`bool PicoMsgSend (PicoComms* M, const char* Str, bool CanWait=false)`**   :   Same as above, just a little simpler to use, if you have a c-string.
 
 **`PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0)`**   :   Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
 
