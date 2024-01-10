@@ -108,7 +108,7 @@ void* ThreadRespond (PicoComms* M) {
 
 
 int TestPair (PicoComms* C) {
-	auto C2 = PicoMsgCommsPair(C, PicoNoiseEvents);
+	auto C2 = PicoMsgCommsPair(C);
 	if (C2) {
 		PicoMsgSendStr(C, "pear🍐🍐🍐test");
 		auto Msg = PicoMsgGet(C2, 2.0);
@@ -214,21 +214,7 @@ int TestThread (PicoComms* C) {
 }
 
 
-void TestBuffers() {
-	PicoBuff B;
-	B.Alloc(5, "🕷️"); // we need a lot of spiddles for this.
-	// like a lot.
-	for (int i = 0; i < 6; i++)
-		B.append_sub("hello", 5);
-	B.lost(10);
-	B.append_sub("biggoodbye", 10);
-	B.lost(5);
-	B.append_sub("hugs", 4);
-}
-
-
 int main (int argc, const char * argv[]) {
-	TestBuffers();
 	auto C = PicoMsgComms();
 	int rz = 0;
 	const char* S = argv[1];

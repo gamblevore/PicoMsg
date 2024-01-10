@@ -151,25 +151,22 @@ static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
  
 struct PicoBuff {
 	const char*			Name;
-	char*				SectionStart;
 	std::atomic_uint	Tail;
 	std::atomic_uint	Head;
 	int					Size;
 	PicoTrousers		WorkerThread;
-	
-	PicoBuff  () {SectionStart = 0; Size = 0; Tail = 0; Head = 0; Name = "";}
-	~PicoBuff () {free(SectionStart);}
-	
-	bool Alloc (int bits, const char* name) { // 🕷️
-		Name = name;
-		while (true) {
-			if ((SectionStart = (char*)malloc(1<<bits))) break;
+	char				SectionStart[0];
+
+	static PicoBuff* New (int bits, const char* name) { // 🕷️
+		PicoBuff* Rz = nullptr; bits++; 
+		while (!Rz) {
 			bits--; 
-			if (bits < 10) return false;
+			if (bits < 10) return nullptr;
+			if ((Rz = (PicoBuff*)calloc(1<<bits, 1))) break;
 		}
-		Head = 0; Tail = 0;
-		Size = 1<<bits;
-		return true;
+		Rz->Size = 0; Rz->Tail = 0; Rz->Head = 0; Rz->Name = name;
+		Rz->Size = 1<<bits;
+		return Rz;
 	}
 		
 	PicoMessage AskUsed () {
@@ -243,40 +240,43 @@ struct PicoBuff {
 
 struct PicoComms : PicoCommsBase {
 	int						Socket;
+	int						Bits;
 	unsigned char			Err;
 	char					HalfClosed;
 	bool					IsParent;
 	int						LengthBuff;
 	std::deque<PicoMessage>	TheQueue;
 	PicoTrousers			QueueLocker;
-	PicoBuff				Reading;
-	PicoBuff				Sending;
+	PicoBuff*				Reading;
+	PicoBuff*				Sending;
 	
 	PicoComms (int noise, bool isparent, int Size) {
-		int Bits = 31 - __builtin_clz(Size);
-		if (Bits < 10) Bits = 10;
-		Bits += (1<<Bits < Size);
-		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0;
+		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0;
 		memset(&Conf, 0, sizeof(PicoConfig)); 
 		Conf.Name = isparent ? "Parent" : "Child";
 		Conf.Noise = noise;
 		Conf.SendTimeOut = 10.0f;
-		Conf.QueueBytesRemaining = 1<<(Bits+3);
-		if (!Sending.Alloc(Bits, "Send") or !Reading.Alloc(Bits, "Read"))
-			failed(ENOBUFS);
+
+		int B = 31 - __builtin_clz(Size);
+		if (B < 10) B = 10;
+		B += (1<<B < Size);
+		Bits = B;
+		Conf.QueueBytesRemaining = 1<<(B+3);
+		
 	}
-	
+
 	~PicoComms () { 
+		SayEvent("Deleted");
+		really_close();
 		for (auto& M:TheQueue)
 			free(M.Data);
-		really_close();
-		SayEvent("Deleted");
+		free(Sending); free(Reading);
 	}
 
 	PicoComms* InitPair (int Noise) {
 		int Socks[2] = {};
 		if (!pico_start() or !get_pair_of(Socks)) return nullptr;
-		PicoComms* Rz = new PicoComms(Noise, false, Reading.Size);
+		PicoComms* Rz = new PicoComms(Noise, false, 1<<Bits);
 		add_conn(Socks[0]);
 		Rz->add_conn(Socks[1]);
 		return Rz;
@@ -306,13 +306,13 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	bool StillSending () {
-		return !(HalfClosed & 2) and Sending.Length() > 0;	
+		return !(HalfClosed & 2) and Sending->Length() > 0;	
 	}
 	
 	bool QueueSend (const char* msg, int n, int Policy) {
 		if (HalfClosed&2) return false;
 		if (queue_sub(msg, n)) return true;
-		if (n+4 > Sending.Size)
+		if (n+4 > Sending->Size)
 			return SayEvent("CantSend: Message too large!");
 		if (Policy == PicoSendGiveUp)
 			return (!Conf.SendFullCount++) and SayEvent("CantSend: BufferFull");
@@ -373,42 +373,42 @@ struct PicoComms : PicoCommsBase {
 //// INTERNALS ////
 	
 	bool queue_sub (const char* msg, int n) {
-		return Sending.AppendMsg(msg, n); // in case I wanna put debug tests here.
+		return Sending->AppendMsg(msg, n); // in case I wanna put debug tests here.
 	}
 
 	void do_reading () {
 		if (HalfClosed&1) return;
-		if (!Reading.WorkerThread.enter()) return;
+		if (!Reading->WorkerThread.enter()) return;
 		
-		while ( auto Msg = Reading.AskUnused() ) {
+		while ( auto Msg = Reading->AskUnused() ) {
 			if (HalfClosed&1) break; 
 			int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount > 0) {
 				if (CanSayDebug())
 					Say("|recv|", "", Amount);
-				Reading.gained(Amount);
+				Reading->gained(Amount);
 				while (acquire_msg()) {;}
 			} else if (!io_pass(Amount, 1))
 				break;
 		}
-		Reading.WorkerThread.unlock();
+		Reading->WorkerThread.unlock();
 	}
 	
 	void do_sending () {
-		int Remain = Sending.Length();
+		int Remain = Sending->Length();
 		if (HalfClosed&2 or !Remain) return;
 		
-		if (!Sending.WorkerThread.enter()) return;
+		if (!Sending->WorkerThread.enter()) return;
 		
-		while ( auto Msg = Sending.AskUsed() ) { // send(MSG_DONTWAIT) does nothing on OSX. but we set non-blocking anyhow.
+		while ( auto Msg = Sending->AskUsed() ) { // send(MSG_DONTWAIT) does nothing on OSX. but we set non-blocking anyhow.
 			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
   			if (Amount > 0) {
 				if (CanSayDebug()) Say("|send|", "", Amount);
-				Sending.lost(Amount);
+				Sending->lost(Amount);
 			} else if (!io_pass(Amount, 2))
 				break;
 		}
-		Sending.WorkerThread.unlock();
+		Sending->WorkerThread.unlock();
 	}
 	
 	bool can_get (float T) {
@@ -429,21 +429,21 @@ struct PicoComms : PicoCommsBase {
 	bool acquire_msg () {
 		int L = LengthBuff;
 		if (!L) {
-			if (Reading.Length() < 4) return false;
-			Reading.Get((char*)&LengthBuff, 4);
+			if (Reading->Length() < 4) return false;
+			Reading->Get((char*)&LengthBuff, 4);
 			L = LengthBuff = ntohl(LengthBuff); 
 		}
 			
 		if (L <= 0)
 			return failed(EILSEQ);
 
-		if (Reading.Length() < L) return false;
+		if (Reading->Length() < L) return false;
 		int QS = L + sizeof(PicoMessage)*2;
 		if (Conf.QueueBytesRemaining < QS)
 			return (!Conf.ReadFullCount++) and SayEvent("CantRead: BufferFull");
 		
 		if (char* Data = (char*)malloc(L); Data) {
-			Reading.Get(Data, L);
+			Reading->Get(Data, L);
 			LengthBuff = 0;
 			Conf.QueueBytesRemaining -= QS;
 			QueueLocker.lock();
@@ -458,11 +458,17 @@ struct PicoComms : PicoCommsBase {
 		return  socketpair(PF_LOCAL, SOCK_STREAM, 0, Socks)==0  or  failed();
 	}
 	
-	void add_conn (int Sock) {
+	bool add_conn (int Sock) {
+		if (!Sending)
+			Sending = PicoBuff::New(Bits, "Send");
+		if (!Reading)
+			Reading = PicoBuff::New(Bits, "Read");
+		if (!Reading or !Sending)
+			return failed(ENOBUFS);
 		Socket = Sock;
 		fcntl(Socket, F_SETFL, fcntl(Sock, F_GETFL, 0) | O_NONBLOCK);
 		pico_list.AddComm(this);
-		SayEvent("Started");
+		return !SayEvent("Started");
 	}
 	
 	bool thread_one (PicoThreadFn fn, PicoComms* M) {
@@ -483,16 +489,18 @@ struct PicoComms : PicoCommsBase {
 
 	void ReportClosedBuffers () {
 		if (CanSayDebug() and HalfClosed != -1 ) {
-			if (Sending.Length()) Say("Sending", "Still Contains", Sending.Length());
-			Say("Sent", "", Sending.Tail);
-			if (Reading.Length()) Say("Reading", "Still Contains", Reading.Length());
-			Say("Read", "", Reading.Head);
+			int SL = Sending->Length();
+			int RL = Reading->Length();
+			if (SL) Say("Sending", "Still Contains", SL);
+			Say("Sent", "", Sending->Tail);
+			if (RL) Say("Reading", "Still Contains", RL);
+			Say("Read", "", Reading->Head);
 		}
 		HalfClosed = -1;
 	}
 
 	void decr () {
-		if (!--RefCount)
+		if (RefCount-- == 1)
 			delete this;
 	}
 
@@ -568,20 +576,20 @@ static void* pico_worker (PicoComms* Dummy) {
 
 /// C-API ///
 /// **initialisation / destruction** ///
-extern "C" PicoComms* PicoMsgComms (int Noise=PicoNoiseEvents)  _pico_code_ (
-	return new PicoComms(Noise, true, 1024*1024);
+extern "C" PicoComms* PicoMsgComms ()  _pico_code_ (
+	return new PicoComms(PicoNoiseEvents, true, 1024*1024);
 )
 
-extern "C" PicoComms* PicoMsgCommsPair (PicoComms* M, int Noise=PicoNoiseEvents) _pico_code_ (
-	return M->InitPair(Noise);
+extern "C" PicoComms* PicoMsgCommsPair (PicoComms* M) _pico_code_ (
+	return M->InitPair(PicoNoiseEvents);
 )
 
 extern "C" int PicoMsgFork (PicoComms* M) _pico_code_ (
 	return M->InitFork();
 )
 
-extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn, int Noise=PicoNoiseEvents) _pico_code_ (
-	return M->InitThread(Noise, fn);
+extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
+	return M->InitThread(PicoNoiseEvents, fn);
 ) 
 
 extern "C" void PicoMsgDestroy (PicoComms* M) _pico_code_ (
