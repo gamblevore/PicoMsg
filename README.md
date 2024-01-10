@@ -17,9 +17,11 @@ PicoMsg uses two threads behind the scenes, to do read and writes.
 
 Generally, PicoMsg tries very hard to be non-blocking. That is, we have a send buffer, a receive buffer, and a message queue! Our buffers default: send 1MB, receive 1MB, queue up to 8MB (it grows). So if your program is busy sending a lot of data, it probably won't block.
 
-The "queue" is added to, automatically everytime a message is completely received. The other side probably will be slurping up the data, even if your main thread is busy doing something else. So the other side's read buffer will probably usually have no more than 1 message in it. However, you can't send messages bigger than your send buffer, or other side's receive buffer. So by default, that limits us to 1MB-4 bytes of data, per message.
+The "queue" is added to, automatically everytime a message is completely received. The other side probably will be slurping up the data, even if your main thread is busy doing something else. However, you can't send messages bigger than your send buffer, or other side's receive buffer. So by default, that limits us to 1MB-4 bytes of data, per message.
 
-This is very open source, so if the default behaviour is not good enough for you, feel free to tweak it! It shouldn't be hard to make the buffer-size growable if you really need that... or default to lower-sizes if you prefer.
+If your main thread is very quickly creating a lot of very small messages, your send buffer could contain (let's say) 1 thousand messages, before our worker-threads see the new data. Then PicoMsg will send as many as possible, which might be all 1 thousand! So the receiving program could easily have 1 thousand messages placed in it's message-queue at once. In fact, this makes PicoMsg much faster than if it were acting like "one in, one out". It is designed to be as fast as possible.
+
+PicoMsg is very open source, so if the default behaviour is not good enough for you, feel free to tweak it! It shouldn't be hard to make the buffer-size growable if you really need that... or default to lower-sizes if you prefer.
 
 ### Building
 
