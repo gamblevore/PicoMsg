@@ -94,9 +94,7 @@ The `Noise` field, can be set to any of the below items. It can also be set on c
     PicoNoiseEventsParent
     PicoNoiseEvents
     PicoNoiseAll        // combination of above
-    
 
-###
 
 Please support this work, by donating. Or perhaps buying some copper jewelry which I am making these days. You won't regret it!
 
