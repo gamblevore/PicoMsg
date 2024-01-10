@@ -63,7 +63,7 @@ These functions are not always needed, but available in case you need them.
 **`void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0);`**   :   Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name. (`Name` is settable via PicoMsgConfig).
     
 
-### Config
+### Configuration
 
 Use the config function to get the config struct. **`PicoConfig* PicoMsgConf (PicoComms* M)`** You can configure "noise", "timeout", "name", and the maximum unread-message queue size.
 
