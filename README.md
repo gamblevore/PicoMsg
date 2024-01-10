@@ -2,7 +2,7 @@
 **Miniature Message Passing IPC System (Single Header C++ File)**
 
 ### Licence:
-https://creativecommons.org/licenses/by/4.0/ I chose this licence, because I need to be attributed.
+https://creativecommons.org/licenses/by/4.0/ I chose this licence, for it's strict requirement of attribution, while still being quite permissive.
 
 ### About
 I created PicoMsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
