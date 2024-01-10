@@ -146,8 +146,6 @@ static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 
 // Upgrade: shared-mem "send" buff could reuse "Read" buff... so super-fast appends.
 // No need for recv/send anymore... just acquire_msg. Apart from that very little change!
-// PicoBuff would directly contain the data, also! And SectionStart would just come "after"
-// easy to share, then. Also good for shared-mem forks.
  
 struct PicoBuff {
 	const char*			Name;
