@@ -88,7 +88,7 @@ Use the config function to get the config struct. **`PicoConfig* PicoMsgConf (Pi
     (if the send is not instant). */
 
         int         QueueBytesRemaining;
-    /* The allowed size for unread messages. There is no hard limit,
+    /* The allowed combined-size for unread messages. There is no hard limit,
     except the size of an int. Set it to 2GB if you want. 8MB default. */
 
         int         Noise;
