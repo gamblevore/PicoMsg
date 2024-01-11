@@ -25,7 +25,9 @@ PicoMsg is very open source, so if the default behaviour is not good enough for 
 
 ### Building
 
-	cd /Path/To/Proj
+If you are using `Speedie` (my language) it will expect PicoMsg to be at `/usr/local/include/PicoMsg/`, and it **might** be good (depending on your needs) to have PicoMsg there anyhow as you can include it from all your projects. But PicoMsg will work fine no matter where it is placed.
+
+	cd /usr/local/include/PicoMsg/
 	g++ PicoTest.cpp -o picotest -std=c++20 -Os
 
 Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`picotest 3`".
