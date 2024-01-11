@@ -33,7 +33,7 @@
 struct			PicoComms;
 struct			PicoMessage { int Length; char* Data; operator bool () {return Data;}; };
 
-struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; };
+struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; int	Bits; };
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -44,13 +44,14 @@ struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int Send
 	#include <fcntl.h>
 	#include <stdio.h>
 	#include <unistd.h>
-	#include <string>
+	#include <string.h>
 	#include <pthread.h>
 	#include <sched.h>
 	#include <errno.h>
 	#include <sys/socket.h>
 	#include <algorithm>
 	#include <deque>
+	#include <arpa/inet.h>
 
 
 struct PicoTrousers { // only one person can wear them at a time.
@@ -238,7 +239,6 @@ struct PicoBuff {
 
 struct PicoComms : PicoCommsBase {
 	int						Socket;
-	int						Bits;
 	unsigned char			Err;
 	char					HalfClosed;
 	bool					IsParent;
@@ -258,7 +258,7 @@ struct PicoComms : PicoCommsBase {
 		int B = 31 - __builtin_clz(Size);
 		if (B < 10) B = 10;
 		B += (1<<B < Size);
-		Bits = B;
+		Conf.Bits = B;
 		Conf.QueueBytesRemaining = 1<<(B+3);
 		
 	}
@@ -274,7 +274,7 @@ struct PicoComms : PicoCommsBase {
 	PicoComms* InitPair (int Noise) {
 		int Socks[2] = {};
 		if (!pico_start() or !get_pair_of(Socks)) return nullptr;
-		PicoComms* Rz = new PicoComms(Noise, false, 1<<Bits);
+		PicoComms* Rz = new PicoComms(Noise, false, 1<<Conf.Bits);
 		add_conn(Socks[0]);
 		Rz->add_conn(Socks[1]);
 		return Rz;
@@ -458,9 +458,9 @@ struct PicoComms : PicoCommsBase {
 	
 	bool add_conn (int Sock) {
 		if (!Sending)
-			Sending = PicoBuff::New(Bits, "Send");
+			Sending = PicoBuff::New(Conf.Bits, "Send");
 		if (!Reading)
-			Reading = PicoBuff::New(Bits, "Read");
+			Reading = PicoBuff::New(Conf.Bits, "Read");
 		if (!Reading or !Sending)
 			return failed(ENOBUFS);
 		Socket = Sock;
@@ -578,54 +578,54 @@ extern "C" PicoComms* PicoMsgComms ()  _pico_code_ (
 	return new PicoComms(PicoNoiseEvents, true, 1024*1024);
 )
 
-extern "C" PicoComms* _Nullable PicoMsgCommsChild (PicoComms* _Nonnull M) _pico_code_ (
+extern "C" PicoComms* PicoMsgCommsChild (PicoComms* M) _pico_code_ (
 	return M->InitPair(PicoNoiseEvents);
 )
 
-extern "C" int PicoMsgFork (PicoComms* _Nonnull M) _pico_code_ (
+extern "C" int PicoMsgFork (PicoComms* M) _pico_code_ (
 	return M->InitFork();
 )
 
-extern "C" int PicoMsgThread (PicoComms* _Nonnull M, PicoThreadFn _Nonnull  fn) _pico_code_ (
+extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
 	return M->InitThread(PicoNoiseEvents, fn);
 ) 
 
-extern "C" void PicoMsgDestroy (PicoComms* _Nullable M) _pico_code_ (
+extern "C" void PicoMsgDestroy (PicoComms* M) _pico_code_ (
 	if (M) M->Destroy();
 )
 
 /// **communications** ///
-extern "C" bool PicoMsgSend (PicoComms* _Nonnull M, PicoMessage Msg, int Policy=PicoSendGiveUp) _pico_code_ (
+extern "C" bool PicoMsgSend (PicoComms* M, PicoMessage Msg, int Policy=PicoSendGiveUp) _pico_code_ (
 	return (Msg and Msg.Length > 0) and M->QueueSend(Msg.Data, Msg.Length, Policy);
 )
 
-extern "C" bool PicoMsgSendStr (PicoComms* _Nonnull M, const char* _Nonnull Msg, bool Policy=PicoSendGiveUp) _pico_code_ (
+extern "C" bool PicoMsgSendStr (PicoComms* M, const char* Msg, bool Policy=PicoSendGiveUp) _pico_code_ (
 	return M->QueueSend(Msg, (int)strlen(Msg)+1, Policy);
 )
 
-extern "C" PicoMessage PicoMsgGet (PicoComms* _Nonnull M, float Time=0) _pico_code_ (
+extern "C" PicoMessage PicoMsgGet (PicoComms* M, float Time=0) _pico_code_ (
 	return M->Get(Time);
 )
 
 
 /// **utilities** ///
-extern "C" void PicoMsgClose (PicoComms* _Nonnull M) _pico_code_ (
+extern "C" void PicoMsgClose (PicoComms* M) _pico_code_ (
 	M->AskClose();
 )
 
-extern "C" void* _Nullable PicoMsgSay (PicoComms* _Nonnull M, const char* _Nonnull A, const char* _Nonnull B="", int Iter=0) _pico_code_ (
+extern "C" void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0) _pico_code_ (
 	return M->Say(A, B, Iter);
 )
 
-extern "C" int PicoMsgErr (PicoComms* _Nonnull M) _pico_code_ (
+extern "C" int PicoMsgErr (PicoComms* M) _pico_code_ (
 	return M->Err;
 )
 
-extern "C" PicoConfig* _Nonnull PicoMsgConf (PicoComms* _Nonnull M) _pico_code_ (
+extern "C" PicoConfig* PicoMsgConf (PicoComms* M) _pico_code_ (
 	return &M->Conf;
 )
 
-extern "C" bool PicoMsgStillSending (PicoComms* _Nonnull M) _pico_code_ (
+extern "C" bool PicoMsgStillSending (PicoComms* M) _pico_code_ (
 	return M->StillSending();
 )
 
