@@ -273,7 +273,7 @@ struct PicoComms : PicoCommsBase {
 
 	PicoComms* InitPair (int Noise) {
 		int Socks[2] = {};
-		if (!pico_start() or !get_pair_of(Socks)) return nullptr;
+		if (!get_pair_of(Socks)) return nullptr;
 		PicoComms* Rz = new PicoComms(Noise, false, 1<<Conf.Bits);
 		add_conn(Socks[0]);
 		Rz->add_conn(Socks[1]);
@@ -281,13 +281,16 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	bool InitThread (int Noise, PicoThreadFn fn) {
-		if (!pico_start() or !alloc_buffs()) return false;
+		if (!alloc_buffs()) return false;
 		PicoComms* C = new PicoComms(Noise, false, 0);
 		C->Reading = Sending; C->Sending = Reading;
 		add_sub();
 		C->add_sub();
-		// OK... so we have the conn... we wanna keep the thingy.
 		return thread_run(fn, C);
+	}
+	
+	bool InitSocket (int Sock) {
+		return (Sock > 0 or failed(EBADF)) and add_conn(Sock);
 	}
 
 	pid_t InitFork () {
@@ -299,9 +302,7 @@ struct PicoComms : PicoCommsBase {
 		IsParent = pid!=0;
 		Conf.Name = IsParent?"Parent":"Child"; // 🕷️_🕷️
 		close(Socks[!IsParent]);
-		add_conn(Socks[IsParent]);
-
-		if (!pico_start() and !IsParent) exit(-1);
+		if (!add_conn(Socks[IsParent])) exit(-1);
 		
 		if (!IsParent)
 			pico_thread_count = 0; // Unix doesn't let us keep threads.
@@ -469,7 +470,7 @@ struct PicoComms : PicoCommsBase {
 			Sending = PicoBuff::New(Conf.Bits, "Send", this);
 		if (!Reading)
 			Reading = PicoBuff::New(Conf.Bits, "Read", this);
-		return (Reading and Sending) or failed(ENOBUFS);
+		return (Reading and Sending and pico_start()) or failed(ENOBUFS);
 	}
 
 	bool add_conn (int Sock) {
@@ -594,17 +595,21 @@ extern "C" PicoComms* PicoMsgCreate ()  _pico_code_ (
 	return new PicoComms(PicoNoiseEvents, true, 1024*1024);
 )
 
-extern "C" PicoComms* PicoMsgChild (PicoComms* M) _pico_code_ (
+extern "C" PicoComms* PicoMsgStartChild (PicoComms* M) _pico_code_ (
 	return M->InitPair(PicoNoiseEvents);
 )
 
-extern "C" int PicoMsgFork (PicoComms* M) _pico_code_ (
-	return M?M->InitFork():fork();
+extern "C" bool PicoMsgStartSocket (PicoComms* M, int Sock) _pico_code_ (
+	return M->InitSocket(Sock);
 )
 
-extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
+extern "C" bool PicoMsgStartThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
 	return M->InitThread(PicoNoiseEvents, fn);
 ) 
+
+extern "C" int PicoMsgStartFork (PicoComms* M) _pico_code_ (
+	return M?M->InitFork():fork();
+)
 
 extern "C" void PicoMsgDestroy (PicoComms* M) _pico_code_ (
 	if (M) M->Destroy();
