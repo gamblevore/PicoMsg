@@ -1,6 +1,4 @@
 
-// get nanosleep should sleep 100x, but no longer than 0.1 second 
-
 #define PICO_IMPLEMENTATION
 #include "PicoMsg.h"
 #include <unistd.h>
@@ -20,7 +18,6 @@ uint hash (uint x) {
 void* ThreadQuery (void* TM) {
 	PicoComms* M = (PicoComms*)TM;
 	M->Conf.Name = "Query";
-//	M->Conf.Noise = PicoNoiseAll;
 	PicoMsgSendStr(M, "mary had a little lamb");
 	const int Stack = 49; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -79,7 +76,6 @@ void* ThreadQuery (void* TM) {
 
 void* ThreadRespond (PicoComms* M) {
 	M->Conf.Name = "Respond";
-//	M->Conf.Noise = PicoNoiseAll;
 	auto Mary = PicoMsgGet(M, 6.0);
 	if (!Mary) return nullptr;
 	PicoMsgSay(M, "WasAsked", Mary.Data);
