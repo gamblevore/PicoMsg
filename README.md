@@ -61,7 +61,7 @@ Start by calling `PicoMsgComms`, then call either `PicoMsgCommsChild`, `PicoMsgT
         char* Data;
     };
 
-This is what you get back. This gives you the `Length` of the data, and the `Data` itself. `Data` from `PicoMsgGet` is, allocated with `malloc` and you must to `free` it after you are finished with it.
+This is what you get back. This gives you the `Length` of the data, and the `Data` itself. `Data` from `PicoMsgGet`, is allocated with `malloc` and you must to `free` it after you are finished with it.
 
 If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
 
