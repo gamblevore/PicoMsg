@@ -599,7 +599,7 @@ extern "C" PicoComms* PicoMsgChild (PicoComms* M) _pico_code_ (
 )
 
 extern "C" int PicoMsgFork (PicoComms* M) _pico_code_ (
-	return M?fork():M->InitFork();
+	return M?M->InitFork():fork();
 )
 
 extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
@@ -651,7 +651,7 @@ extern "C" PicoDate PicoMsgLastRead (PicoComms* M) _pico_code_ (
 )
 
 extern "C" int PicoMsgSocket (PicoComms* M) _pico_code_ (
-	return M?M->Socket:0;
+	return M->Socket;
 )
 
 
