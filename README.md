@@ -11,7 +11,7 @@ PicoMsg is thread-safe as long as you use the single-producer, single-consumer a
 
 PicoMsg is simpler and smaller than nanomsg and zeromq, at around 450 SLOC.
 
-PicoMsg uses two threads behind the scenes, to do read and writes. 
+PicoMsg uses two threads behind the scenes, to do read and writes. PicoMsg will communicate with sockets across processes. But using threads within a process, PicoMsg will use direct memory sharing, which is much faster!
 
 ### Usage
 
