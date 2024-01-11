@@ -104,7 +104,7 @@ void* ThreadRespond (PicoComms* M) {
 
 
 int TestPair (PicoComms* C) {
-	auto C2 = PicoMsgChild(C);
+	auto C2 = PicoMsgStartChild(C);
 	if (C2) {
 		PicoMsgSendStr(C, "pear🍐🍐🍐test");
 		auto Msg = PicoMsgGet(C2, 2.0);
@@ -154,7 +154,7 @@ bool TestIntenseCompare (PicoComms* C, float T) {
 
 
 int TestIntense (PicoComms* C) {
-	int PID = PicoMsgFork(C);
+	int PID = PicoMsgStartFork(C);
 	C->Conf.Noise = PicoNoiseAll;
 	if (PID < 0)
 		return -PID;
@@ -203,7 +203,7 @@ int TestIntense (PicoComms* C) {
 }
 
 int TestThread (PicoComms* C) {
-	if (!PicoMsgThread(C, ThreadRespond)) return -1;
+	if (!PicoMsgStartThread(C, ThreadRespond)) return -1;
 	ThreadQuery(C);
 	sleep(1); // let ThreadRespond exit
 	return 0;	
