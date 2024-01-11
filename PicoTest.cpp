@@ -104,7 +104,7 @@ void* ThreadRespond (PicoComms* M) {
 
 
 int TestPair (PicoComms* C) {
-	auto C2 = PicoMsgCommsChild(C);
+	auto C2 = PicoMsgChild(C);
 	if (C2) {
 		PicoMsgSendStr(C, "pear🍐🍐🍐test");
 		auto Msg = PicoMsgGet(C2, 2.0);
@@ -205,13 +205,13 @@ int TestIntense (PicoComms* C) {
 int TestThread (PicoComms* C) {
 	if (!PicoMsgThread(C, ThreadRespond)) return -1;
 	ThreadQuery(C);
-	sleep(4); // let ThreadRespond exit
+	sleep(1); // let ThreadRespond exit
 	return 0;	
 }
 
 
 int main (int argc, const char * argv[]) {
-	auto C = PicoMsgComms();
+	auto C = PicoMsgCreate();
 	int rz = 0;
 	const char* S = argv[1];
 	if (!S) S = "3";

@@ -33,6 +33,7 @@ struct			PicoComms;
 struct			PicoMessage { int Length; char* Data; operator bool () {return Data;}; };
 
 struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; int	Bits; };
+typedef void* (*PicoThreadFn)(PicoComms* M);
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -74,7 +75,6 @@ struct PicoTrousers { // only one person can wear them at a time.
 
 
 typedef int64_t	PicoDate;  // 16 bits for small stuff
-typedef void* (*PicoThreadFn)(PicoComms* M);
 PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
 	NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
 	S <<= 16;
@@ -242,14 +242,15 @@ struct PicoComms : PicoCommsBase {
 	unsigned char			Err;
 	char					HalfClosed;
 	bool					IsParent;
+	PicoTrousers			QueueLocker;
 	int						LengthBuff;
 	std::deque<PicoMessage>	TheQueue;
-	PicoTrousers			QueueLocker;
 	PicoBuff*				Reading;
 	PicoBuff*				Sending;
+	PicoDate				LastRead;
 	
 	PicoComms (int noise, bool isparent, int Size) {
-		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0;
+		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0; LastRead = 0;
 		memset(&Conf, 0, sizeof(PicoConfig)); 
 		Conf.Name = isparent ? "Parent" : "Child";
 		Conf.Noise = noise;
@@ -282,7 +283,7 @@ struct PicoComms : PicoCommsBase {
 
 	bool InitThread (int Noise, PicoThreadFn fn) {
 		PicoComms* C = InitPair(Noise);
-		return C and thread_one(fn, C);
+		return C and thread_run(fn, C);
 	}
 
 	pid_t InitFork () {
@@ -359,7 +360,7 @@ struct PicoComms : PicoCommsBase {
 		if (HalfClosed>=3) return;
 
 		if (!Err) Err = ENOTCONN;
-		ReportClosedBuffers();
+		report_closed_buffers();
 		SayEvent("Disconnecting");
 	}
 	
@@ -447,6 +448,7 @@ struct PicoComms : PicoCommsBase {
 			QueueLocker.lock();
 			TheQueue.push_back({L, Data});
 			QueueLocker.unlock();
+			LastRead = PicoGetDate();
 			return true;
 		}
 		return failed(ENOBUFS);
@@ -469,7 +471,7 @@ struct PicoComms : PicoCommsBase {
 		return !SayEvent("Started");
 	}
 	
-	bool thread_one (PicoThreadFn fn, PicoComms* M) {
+	bool thread_run (PicoThreadFn fn, PicoComms* M) {
 		pthread_t T = 0;   ;;;/*_*/;;;   // creeping upwards!!
 		if (!pthread_create(&T, nullptr, (void*(*)(void*))fn, M) and !pthread_detach(T))
 			return true;
@@ -478,14 +480,14 @@ struct PicoComms : PicoCommsBase {
 	
 	bool pico_start () {
 		for (int i = pico_thread_count; i < PicoDesiredThreadCount; i++)
-			if (!thread_one(pico_worker, nullptr) and i == 0)
+			if (!thread_run(pico_worker, nullptr) and i == 0)
 				return really_close(); // 1 thread is still OK.
 
 		return true;
 	}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
 
 
-	void ReportClosedBuffers () {
+	void report_closed_buffers () {
 		if (CanSayDebug() and HalfClosed != -1 ) {
 			int SL = Sending->Length();
 			int RL = Reading->Length();
@@ -530,7 +532,7 @@ struct PicoComms : PicoCommsBase {
 	bool really_close() {
 		if (!Socket) return false; 
 		Socket = close(Socket)&0;
-		ReportClosedBuffers();
+		report_closed_buffers();
 		RemoveComm();
 		return CanSayDebug() and Say("Closing");
 	}
@@ -574,11 +576,11 @@ static void* pico_worker (PicoComms* Dummy) {
 
 /// C-API ///
 /// **initialisation / destruction** ///
-extern "C" PicoComms* PicoMsgComms ()  _pico_code_ (
+extern "C" PicoComms* PicoMsgCreate ()  _pico_code_ (
 	return new PicoComms(PicoNoiseEvents, true, 1024*1024);
 )
 
-extern "C" PicoComms* PicoMsgCommsChild (PicoComms* M) _pico_code_ (
+extern "C" PicoComms* PicoMsgChild (PicoComms* M) _pico_code_ (
 	return M->InitPair(PicoNoiseEvents);
 )
 
@@ -618,7 +620,7 @@ extern "C" void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int 
 )
 
 extern "C" int PicoMsgErr (PicoComms* M) _pico_code_ (
-	return M->Err;
+	return M?M->Err:-1;
 )
 
 extern "C" PicoConfig* PicoMsgConf (PicoComms* M) _pico_code_ (
@@ -627,6 +629,10 @@ extern "C" PicoConfig* PicoMsgConf (PicoComms* M) _pico_code_ (
 
 extern "C" bool PicoMsgStillSending (PicoComms* M) _pico_code_ (
 	return M->StillSending();
+)
+
+extern "C" bool PicoMsgLastRead (PicoComms* M) _pico_code_ (
+	return M?M->LastRead:0;
 )
 
 #endif
