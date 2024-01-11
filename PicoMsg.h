@@ -14,7 +14,6 @@
 
 #ifndef __PICO_MSG__
 #define __PICO_MSG__
-#include <atomic>
 
 #define PicoSilent				0
 #define PicoNoiseDebugChild		1
@@ -52,6 +51,7 @@ struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int Send
 	#include <algorithm>
 	#include <deque>
 	#include <arpa/inet.h>
+	#include <atomic>
 
 
 struct PicoTrousers { // only one person can wear them at a time.
