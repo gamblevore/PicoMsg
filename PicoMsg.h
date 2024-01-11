@@ -25,12 +25,15 @@
 #ifndef PicoDesiredThreadCount
 	#define PicoDesiredThreadCount	2
 #endif
+#include <stdint.h> // for picodate
 
 struct			PicoComms;
 struct			PicoMessage { int Length; char* Data; operator bool () {return Data;}; };
 
 struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; int	Bits; };
+
 typedef void* (*PicoThreadFn)(PicoComms* M);
+typedef int64_t	PicoDate;  // 16 bits for small stuff
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -71,7 +74,6 @@ struct PicoTrousers { // only one person can wear them at a time.
 };
 
 
-typedef int64_t	PicoDate;  // 16 bits for small stuff
 PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
 	NS /= (uint64_t)15259; // for some reason unless we spell this out, xcode will miscompile this.
 	S <<= 16;
@@ -597,7 +599,7 @@ extern "C" PicoComms* PicoMsgChild (PicoComms* M) _pico_code_ (
 )
 
 extern "C" int PicoMsgFork (PicoComms* M) _pico_code_ (
-	return M->InitFork();
+	return M?fork():M->InitFork();
 )
 
 extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
@@ -644,8 +646,13 @@ extern "C" bool PicoMsgStillSending (PicoComms* M) _pico_code_ (
 	return M->StillSending();
 )
 
-extern "C" bool PicoMsgLastRead (PicoComms* M) _pico_code_ (
+extern "C" PicoDate PicoMsgLastRead (PicoComms* M) _pico_code_ (
 	return M?M->LastRead:0;
 )
+
+extern "C" int PicoMsgSocket (PicoComms* M) _pico_code_ (
+	return M?M->Socket:0;
+)
+
 
 #endif
