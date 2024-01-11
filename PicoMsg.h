@@ -8,9 +8,6 @@
 /// Released 2024
 /// Author: Theodore H. Smith, http://gamblevore.org
 
-// future upgrades:
-// Only use recv/send for internet, or if fork can't share memory, otherwise use same buffer. 
-
 
 #ifndef __PICO_MSG__
 #define __PICO_MSG__
@@ -144,9 +141,6 @@ static	void*				pico_worker (PicoComms* Dummy);
 static	std::atomic_int		pico_thread_count;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 
-
-// Upgrade: shared-mem "send" buff could reuse "Read" buff... so super-fast appends.
-// No need for recv/send anymore... just acquire_msg. Apart from that very little change!
  
 struct PicoBuff {
 	const char*			Name;
@@ -154,17 +148,18 @@ struct PicoBuff {
 	std::atomic_uint	Head;
 	int					Size;
 	PicoTrousers		WorkerThread;
+	PicoComms*			Owner;
 	char				SectionStart[0];
 
-	static PicoBuff* New (int bits, const char* name) { // 🕷️
+	static PicoBuff* New (int bits, const char* name, PicoComms* O) { // 🕷️
 		PicoBuff* Rz = nullptr; bits++; 
 		while (!Rz) {
 			bits--; 
 			if (bits < 10) return nullptr;
 			if ((Rz = (PicoBuff*)calloc(1<<bits, 1))) break;
 		}
-		Rz->Size = 0; Rz->Tail = 0; Rz->Head = 0; Rz->Name = name;
-		Rz->Size = 1<<bits;
+		Rz->Size = 0; Rz->Tail = 0; Rz->Head = 0; Rz->Owner = O;
+		Rz->Size = 1<<bits; Rz->Name = name;
 		return Rz;
 	}
 		
@@ -238,19 +233,19 @@ struct PicoBuff {
 
 
 struct PicoComms : PicoCommsBase {
-	int						Socket;
-	unsigned char			Err;
-	char					HalfClosed;
-	bool					IsParent;
-	PicoTrousers			QueueLocker;
-	int						LengthBuff;
-	std::deque<PicoMessage>	TheQueue;
-	PicoBuff*				Reading;
-	PicoBuff*				Sending;
-	PicoDate				LastRead;
+	int							Socket;
+	unsigned char				Err;
+	char						HalfClosed;
+	bool						IsParent;
+	PicoTrousers				QueueLocker;
+	int							LengthBuff;
+	std::deque<PicoMessage>		TheQueue;
+	PicoBuff*					Reading;
+	PicoBuff*					Sending;
+	PicoDate					LastRead;
 	
 	PicoComms (int noise, bool isparent, int Size) {
-		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0; LastRead = 0;
+		RefCount = 1; Socket = -1; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0; LastRead = 0;
 		memset(&Conf, 0, sizeof(PicoConfig)); 
 		Conf.Name = isparent ? "Parent" : "Child";
 		Conf.Noise = noise;
@@ -261,7 +256,6 @@ struct PicoComms : PicoCommsBase {
 		B += (1<<B < Size);
 		Conf.Bits = B;
 		Conf.QueueBytesRemaining = 1<<(B+3);
-		
 	}
 
 	~PicoComms () { 
@@ -269,7 +263,10 @@ struct PicoComms : PicoCommsBase {
 		really_close();
 		for (auto& M:TheQueue)
 			free(M.Data);
-		free(Sending); free(Reading);
+		if (Sending->Owner == this)
+			free(Sending);
+		if (Reading->Owner == this)
+			free(Reading);
 	}
 
 	PicoComms* InitPair (int Noise) {
@@ -282,8 +279,13 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	bool InitThread (int Noise, PicoThreadFn fn) {
-		PicoComms* C = InitPair(Noise);
-		return C and thread_run(fn, C);
+		if (!pico_start() or !alloc_buffs()) return false;
+		PicoComms* C = new PicoComms(Noise, false, 0);
+		C->Reading = Sending; C->Sending = Reading;
+		add_sub();
+		C->add_sub();
+		// OK... so we have the conn... we wanna keep the thingy.
+		return thread_run(fn, C);
 	}
 
 	pid_t InitFork () {
@@ -378,24 +380,26 @@ struct PicoComms : PicoCommsBase {
 	void do_reading () {
 		if (HalfClosed&1) return;
 		if (!Reading->WorkerThread.enter()) return;
-		
-		while ( auto Msg = Reading->AskUnused() ) {
-			if (HalfClosed&1) break; 
-			int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
-			if (Amount > 0) {
-				if (CanSayDebug())
-					Say("|recv|", "", Amount);
-				Reading->gained(Amount);
-				while (acquire_msg()) {;}
-			} else if (!io_pass(Amount, 1))
-				break;
-		}
+		if (Socket < 0) // memory only
+			while (acquire_msg()) {;}
+		  else
+			while ( auto Msg = Reading->AskUnused() ) {
+				if (HalfClosed&1) break; 
+				int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+				if (Amount > 0) {
+					if (CanSayDebug())
+						Say("|recv|", "", Amount);
+					Reading->gained(Amount);
+					while (acquire_msg()) {;}
+				} else if (!io_pass(Amount, 1))
+					break;
+			}
 		Reading->WorkerThread.unlock();
 	}
 	
 	void do_sending () {
 		int Remain = Sending->Length();
-		if (HalfClosed&2 or !Remain) return;
+		if (HalfClosed&2 or !Remain or Socket < 0) return;
 		
 		if (!Sending->WorkerThread.enter()) return;
 		
@@ -458,15 +462,22 @@ struct PicoComms : PicoCommsBase {
 		return  socketpair(PF_LOCAL, SOCK_STREAM, 0, Socks)==0  or  failed();
 	}
 	
-	bool add_conn (int Sock) {
+	bool alloc_buffs () {
 		if (!Sending)
-			Sending = PicoBuff::New(Conf.Bits, "Send");
+			Sending = PicoBuff::New(Conf.Bits, "Send", this);
 		if (!Reading)
-			Reading = PicoBuff::New(Conf.Bits, "Read");
-		if (!Reading or !Sending)
-			return failed(ENOBUFS);
+			Reading = PicoBuff::New(Conf.Bits, "Read", this);
+		return (Reading and Sending) or failed(ENOBUFS);
+	}
+
+	bool add_conn (int Sock) {
+		if (!alloc_buffs()) return false;
 		Socket = Sock;
 		fcntl(Socket, F_SETFL, fcntl(Sock, F_GETFL, 0) | O_NONBLOCK);
+		return add_sub();
+	}
+
+	bool add_sub () {
 		pico_list.AddComm(this);
 		return !SayEvent("Started");
 	}
@@ -530,8 +541,9 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	bool really_close() {
-		if (!Socket) return false; 
-		Socket = close(Socket)&0;
+		int S = Socket; if (!S) return false;
+		Socket = 0; 
+		if (S > 0) close(S);
 		report_closed_buffers();
 		RemoveComm();
 		return CanSayDebug() and Say("Closing");
@@ -595,6 +607,7 @@ extern "C" int PicoMsgThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
 extern "C" void PicoMsgDestroy (PicoComms* M) _pico_code_ (
 	if (M) M->Destroy();
 )
+
 
 /// **communications** ///
 extern "C" bool PicoMsgSend (PicoComms* M, PicoMessage Msg, int Policy=PicoSendGiveUp) _pico_code_ (
