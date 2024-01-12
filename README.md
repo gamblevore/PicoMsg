@@ -15,7 +15,7 @@ PicoMsg uses two threads behind the scenes, to read and write. PicoMsg will comm
 
 PicoMsg is almost always non-blocking. The default buffer sizes are: Send=1MB, Receive=1MB, Queue <= 8MB (it grows). If your program is busy sending a lot of data, it probably won't block.
 
-The other side, will have a read thread that slurps up all your data. One thing to remember, is that you can't send messages bigger than your buffers. That limits us to 1MB-4 bytes per message, by default. PicoMsg will send and get multiple messages per read/send event, if multiple are available.
+The other side, will have two worker-threads that slurp up all your data. One thing to remember, is that you can't send messages bigger than your buffers. That limits us to 1MB-4 bytes per message, by default. PicoMsg will send and get multiple messages per read/send event, if multiple are available.
 
 PicoMsg is open source. If the default behaviour is not good enough for you, feel free to tweak it! It shouldn't be hard to make the buffer-size growable if you really need that... or default to lower-sizes if you prefer.
 
