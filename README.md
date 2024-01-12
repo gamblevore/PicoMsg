@@ -36,17 +36,15 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 ### Initialisation / Destruction
 
-Start by calling `PicoMsgCreate`, then call either `PicoMsgCommsChild`, `PicoMsgThread` or `PicoMsgFork` on it. Call `PicoMsgDestroy` when you are done with any `PicoComms*`.
+Start by calling `PicoMsgCreate`, then call either `PicoMsgStartChild `, `PicoMsgStartThread ` or `PicoMsgStartFork `. Call `PicoMsgDestroy` when you are finsished.
 
 **`PicoComms* PicoMsgCreate ()`**   :   Creates your message-passer.
 
-**`PicoComms* PicoMsgStartChild (PicoComms* M)`**   :   Creates a child message-passer, and connects it to the parent. Only needed for threading, not forks.
+**`bool PicoMsgStartThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it!. Returns false if any error occurred.
 
-**`int PicoMsgStartThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it! A handier way to run PicoMsg. Check the PicoTest.cpp file for an example. 
+**`pid_t PicoMsgStartFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from fork(). Same numbers as `fork()` returns. Such as that -1 means an error occurred.
 
-**`int PicoMsgStartFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg.
-
-**`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Destroying one side does not destroy the other, will also need PicoMsgDestroy called on it. But destroying one side does close the other, at least. So sends will be ignored.
+**`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object, and reclaims memory. Also closes the other side.
 
 ### Communication
 
