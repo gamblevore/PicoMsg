@@ -77,13 +77,12 @@ void* ThreadQuery (void* TM) {
 void* ThreadRespond (PicoComms* M) {
 	M->Conf.Name = "Respond";
 	auto Mary = PicoMsgGet(M, 6.0);
-	if (!Mary) return nullptr;
 	PicoMsgSay(M, "WasAsked", Mary.Data);
 	free(Mary.Data);
 	
 	int n = 0;
 	while (!PicoMsgErr(M)) {
-		auto Msg = PicoMsgGet(M, 20);
+		auto Msg = PicoMsgGet(M, 1.3);
 		if (!Msg) {
 			PicoMsgSay(M, "NoMoreInput", "", n);
 			break;
@@ -205,7 +204,7 @@ int TestIntense (PicoComms* C) {
 int TestThread (PicoComms* C) {
 	if (!PicoMsgStartThread(C, ThreadRespond)) return -1;
 	ThreadQuery(C);
-	sleep(1); // let ThreadRespond exit
+	sleep(2); // let ThreadRespond exit
 	return 0;	
 }
 
