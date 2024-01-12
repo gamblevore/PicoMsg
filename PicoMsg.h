@@ -53,6 +53,7 @@ typedef int64_t	PicoDate;  // 16 bits for small stuff
 	#include <deque>
 	#include <arpa/inet.h>
 	#include <atomic>
+	#include <csignal>
 
 
 struct PicoTrousers { // only one person can wear them at a time.
@@ -149,6 +150,7 @@ struct PicoBuff {
 	std::atomic_uint	Tail;
 	std::atomic_uint	Head;
 	int					Size;
+	std::atomic_int		RefCount;	
 	PicoTrousers		WorkerThread;
 	PicoComms*			Owner;
 	char				SectionStart[0];
@@ -158,11 +160,16 @@ struct PicoBuff {
 		while (!Rz) {
 			bits--; 
 			if (bits < 10) return nullptr;
-			if ((Rz = (PicoBuff*)calloc(1<<bits, 1))) break;
+			if ((Rz = (PicoBuff*)calloc((1<<bits)+sizeof(PicoBuff), 1))) break;
 		}
-		Rz->Size = 0; Rz->Tail = 0; Rz->Head = 0; Rz->Owner = O;
+		Rz->Size = 0; Rz->Tail = 0; Rz->Head = 0; Rz->Owner = O; Rz->RefCount = 1;
 		Rz->Size = 1<<bits; Rz->Name = name;
 		return Rz;
+	}
+	
+	void Decr () {
+		if (--RefCount == 0)
+			free(this);
 	}
 		
 	PicoMessage AskUsed () {
@@ -265,10 +272,8 @@ struct PicoComms : PicoCommsBase {
 		really_close();
 		for (auto& M:TheQueue)
 			free(M.Data);
-		if (Sending->Owner == this)
-			free(Sending);
-		if (Reading->Owner == this)
-			free(Reading);
+		Sending->Decr();
+		Reading->Decr();
 	}
 
 	PicoComms* InitPair (int Noise) {
@@ -283,7 +288,8 @@ struct PicoComms : PicoCommsBase {
 	bool InitThread (int Noise, PicoThreadFn fn) {
 		if (!alloc_buffs()) return false;
 		PicoComms* C = new PicoComms(Noise, false, 0);
-		C->Reading = Sending; C->Sending = Reading;
+		Sending->RefCount++; C->Reading = Sending; 
+		Reading->RefCount++; C->Sending = Reading;
 		add_sub();
 		C->add_sub();
 		return thread_run(fn, C);
