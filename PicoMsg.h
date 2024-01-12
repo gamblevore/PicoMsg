@@ -27,13 +27,14 @@
 #endif
 #include <stdint.h> // for picodate
 
+typedef int64_t	PicoDate;  // 16 bits for small stuff
+
 struct			PicoComms;
 struct			PicoMessage { int Length; char* Data; operator bool () {return Data;}; };
 
-struct 			PicoConfig  { const char* Name; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; int	Bits; };
+struct 			PicoConfig  { const char* Name; PicoDate LastRead; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; int	Bits; };
 
 typedef void* (*PicoThreadFn)(PicoComms* M);
-typedef int64_t	PicoDate;  // 16 bits for small stuff
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -53,7 +54,6 @@ typedef int64_t	PicoDate;  // 16 bits for small stuff
 	#include <deque>
 	#include <arpa/inet.h>
 	#include <atomic>
-	#include <csignal>
 
 
 struct PicoTrousers { // only one person can wear them at a time.
@@ -251,10 +251,9 @@ struct PicoComms : PicoCommsBase {
 	std::deque<PicoMessage>		TheQueue;
 	PicoBuff*					Reading;
 	PicoBuff*					Sending;
-	PicoDate					LastRead;
 	
 	PicoComms (int noise, bool isparent, int Size) {
-		RefCount = 1; Socket = -1; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0; LastRead = 0;
+		RefCount = 1; Socket = -1; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0;
 		memset(&Conf, 0, sizeof(PicoConfig)); 
 		Conf.Name = isparent ? "Parent" : "Child";
 		Conf.Noise = noise;
@@ -461,7 +460,7 @@ struct PicoComms : PicoCommsBase {
 			QueueLocker.lock();
 			TheQueue.push_back({L, Data});
 			QueueLocker.unlock();
-			LastRead = PicoGetDate();
+			Conf.LastRead = PicoGetDate();
 			return true;
 		}
 		return failed(ENOBUFS);
@@ -655,10 +654,6 @@ extern "C" PicoConfig* PicoMsgConf (PicoComms* M) _pico_code_ (
 
 extern "C" bool PicoMsgStillSending (PicoComms* M) _pico_code_ (
 	return M->StillSending();
-)
-
-extern "C" PicoDate PicoMsgLastRead (PicoComms* M) _pico_code_ (
-	return M?M->LastRead:0;
 )
 
 extern "C" int PicoMsgSocket (PicoComms* M) _pico_code_ (
