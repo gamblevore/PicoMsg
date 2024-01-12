@@ -5,23 +5,19 @@
 https://creativecommons.org/licenses/by/4.0/ I chose this licence, for it's strict requirement of attribution, while still being quite permissive.
 
 ### About
-I created PicoMsg, because I couldn't find anything that fit my needs for a single-header, simple and fast message-passing library.
+PicoMsg is a single-header, thread-safe, simple and fast message-passing library.
 
-PicoMsg is thread-safe as long as you use the single-producer, single-consumer approach. That is, you can make two threads, and one thread can freely talk to the other using PicoMsg, as long as each thread only talks to it's own `PicoComms` object.
+PicoMsg uses the single-producer, single-consumer approach. PicoMsg is simpler and smaller than nanomsg and zeromq, at around 450 SLOC.
 
-PicoMsg is simpler and smaller than nanomsg and zeromq, at around 450 SLOC.
-
-PicoMsg uses two threads behind the scenes, to do read and writes. PicoMsg will communicate with sockets across processes. But using threads within a process, PicoMsg will use direct memory sharing, which is much faster!
+PicoMsg uses two threads behind the scenes, to read and write. PicoMsg will communicate with sockets across processes. But using threads within a process, PicoMsg will use direct memory sharing, which is much faster!
 
 ### Usage
 
-Generally, PicoMsg tries very hard to be non-blocking. That is, we have a send buffer, a receive buffer, and a message queue! Our buffers default: send 1MB, receive 1MB, queue up to 8MB (it grows). So if your program is busy sending a lot of data, it probably won't block.
+PicoMsg is almost always non-blocking. The default buffer sizes are: Send=1MB, Receive=1MB, Queue <= 8MB (it grows). If your program is busy sending a lot of data, it probably won't block.
 
-The "queue" is added to, automatically everytime a message is completely received. The other side probably will be slurping up the data, even if your main thread is busy doing something else. However, you can't send messages bigger than your send buffer, or other side's receive buffer. So by default, that limits us to 1MB-4 bytes of data, per message.
+The other side, will have a read thread that slurps up all your data. One thing to remember, is that you can't send messages bigger than your buffers. That limits us to 1MB-4 bytes per message, by default. PicoMsg will send and get multiple messages per read/send event, if multiple are available.
 
-If your main thread is very quickly creating a lot of very small messages, your send buffer could contain (let's say) 1 thousand messages, before our worker-threads see the new data. Then PicoMsg will send as many as possible, which might be all 1 thousand! So the receiving program could easily have 1 thousand messages placed in it's message-queue at once. In fact, this makes PicoMsg much faster than if it were acting like "one in, one out". It is designed to be as fast as possible.
-
-PicoMsg is very open source, so if the default behaviour is not good enough for you, feel free to tweak it! It shouldn't be hard to make the buffer-size growable if you really need that... or default to lower-sizes if you prefer.
+PicoMsg is open source. If the default behaviour is not good enough for you, feel free to tweak it! It shouldn't be hard to make the buffer-size growable if you really need that... or default to lower-sizes if you prefer.
 
 ### Building
 
