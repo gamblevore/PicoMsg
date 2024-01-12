@@ -30,9 +30,9 @@
 typedef int64_t	PicoDate;  // 16 bits for small stuff
 
 struct			PicoComms;
-struct			PicoMessage { int Length; char* Data; operator bool () {return Data;}; };
+struct			PicoMessage { int Length;  char* Data;  operator bool () {return Data;}; };
 
-struct 			PicoConfig  { const char* Name; PicoDate LastRead; int Noise; float SendTimeOut; int SendFailed; int ReadFailed; int QueueBytesRemaining; int	Bits; };
+struct 			PicoConfig  { const char* Name;  PicoDate LastRead;  int Noise;  float SendTimeOut;  int SendFailed;  int ReadFailed;  int QueueBytesRemaining;  int Bits; };
 
 typedef void* (*PicoThreadFn)(PicoComms* M);
 
@@ -395,9 +395,8 @@ struct PicoComms : PicoCommsBase {
 				if (HalfClosed&1) break; 
 				int Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 				if (Amount > 0) {
-					if (CanSayDebug())
-						Say("|recv|", "", Amount);
 					Reading->gained(Amount);
+					if (CanSayDebug()) Say("|recv|", "", Amount);
 					while (acquire_msg()) {;}
 				} else if (!io_pass(Amount, 1))
 					break;
@@ -414,8 +413,8 @@ struct PicoComms : PicoCommsBase {
 		while ( auto Msg = Sending->AskUsed() ) { // send(MSG_DONTWAIT) does nothing on OSX. but we set non-blocking anyhow.
 			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
   			if (Amount > 0) {
-				if (CanSayDebug()) Say("|send|", "", Amount);
 				Sending->lost(Amount);
+				if (CanSayDebug()) Say("|send|", "", Amount);
 			} else if (!io_pass(Amount, 2))
 				break;
 		}
