@@ -40,11 +40,9 @@ Start by calling `PicoMsgCreate`, then call either `PicoMsgStartChild `, `PicoMs
 
 **`PicoComms* PicoMsgCreate ()`**   :   Creates your message-passer.
 
-**`PicoComms* PicoMsgStartChild (PicoComms* M)`**   :   Creates a child message-passer, and connects it to the parent. Only needed for threading, not forks.
+**`bool PicoMsgStartThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it!. Returns false if any error occurred.
 
-**`int PicoMsgStartThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it! A handier way to run PicoMsg. Check the PicoTest.cpp file for an example. 
-
-**`int PicoMsgStartFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg.
+**`pid_t PicoMsgStartFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from fork().
 
 **`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object. Destroying one side does not destroy the other, will also need PicoMsgDestroy called on it. But destroying one side does close the other, at least. So sends will be ignored.
 
