@@ -32,7 +32,7 @@ typedef int64_t	PicoDate;  // 16 bits for small stuff
 struct			PicoComms;
 struct			PicoMessage { int Length; char* Data; operator bool () {return Data;}; };
 
-struct 			PicoConfig  { const char* Name; PicoDate LastRead; int Noise; float SendTimeOut; int SendFullCount; int ReadFullCount; int QueueBytesRemaining; int	Bits; };
+struct 			PicoConfig  { const char* Name; PicoDate LastRead; int Noise; float SendTimeOut; int SendFailed; int ReadFailed; int QueueBytesRemaining; int	Bits; };
 
 typedef void* (*PicoThreadFn)(PicoComms* M);
 
@@ -324,7 +324,7 @@ struct PicoComms : PicoCommsBase {
 		if (n+4 > Sending->Size)
 			return SayEvent("CantSend: Message too large!");
 		if (Policy == PicoSendGiveUp)
-			return (!Conf.SendFullCount++) and SayEvent("CantSend: BufferFull");
+			return (!Conf.SendFailed++) and SayEvent("CantSend: BufferFull");
 		
 		PicoDate Final = PicoGetDate() + (PicoDate)(Conf.SendTimeOut*65536.0f);
 		while (PicoGetDate() < Final) {
@@ -333,7 +333,7 @@ struct PicoComms : PicoCommsBase {
 			if (queue_sub(msg, n)) return true;
 		}
 		
-		return (!Conf.SendFullCount++) and SayEvent("CantSend: TimedOut");
+		return (!Conf.SendFailed++) and SayEvent("CantSend: TimedOut");
 	}
 	
 	PicoMessage Get (float T = 0.0) {
@@ -451,7 +451,7 @@ struct PicoComms : PicoCommsBase {
 		if (Reading->Length() < L) return false;
 		int QS = L + sizeof(PicoMessage)*2;
 		if (Conf.QueueBytesRemaining < QS)
-			return (!Conf.ReadFullCount++) and SayEvent("CantRead: BufferFull");
+			return (!Conf.ReadFailed++) and SayEvent("CantRead: BufferFull");
 		
 		if (char* Data = (char*)malloc(L); Data) {
 			Reading->Get(Data, L);
