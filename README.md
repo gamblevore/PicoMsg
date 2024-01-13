@@ -32,30 +32,30 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 ### Initialisation / Destruction
 
-Start by calling `PicoMsgCreate`, then call either `PicoMsgStartChild `, `PicoMsgStartThread ` or `PicoMsgStartFork `. Call `PicoMsgDestroy` when you are finsished.
+Start by calling `PicoCreate`, then call either `PicoStartChild `, `PicoStartThread ` or `PicoStartFork `. Call `PicoDestroy` when you are finsished.
 
-**`PicoComms* PicoMsgCreate ()`**   :   Creates your message-passer.
+**`PicoComms* PicoCreate ()`**   :   Creates your message-passer.
 
-**`bool PicoMsgStartThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it!. Returns false if any error occurred.
+**`bool PicoStartThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it!. Returns false if any error occurred.
 
-**`pid_t PicoMsgStartFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from fork(). Same numbers as `fork()` returns. Such as that -1 means an error occurred.
+**`pid_t PicoStartFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from fork(). Same numbers as `fork()` returns. Such as that -1 means an error occurred.
 
-**`void PicoMsgDestroy (PicoComms* M)`**   :   Destroys the PicoComms object, and reclaims memory. Also closes the other side.
+**`void PicoDestroy (PicoComms* M)`**   :   Destroys the PicoComms object, and reclaims memory. Also closes the other side.
 
 ### Communication
 
-**`bool PicoMsgSend (PicoComms* M, PicoMessage Msg, bool CanWait=false)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. If `CanWait` is false and there is no buffer space, this function returns `false`. If `CanWait` is true, it will block until the timeout is reached. See the ["configuration"](#Configuration) section about how to change the timeout.
+**`bool PicoSend (PicoComms* M, PicoMessage Msg, bool CanWait=false)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. If `CanWait` is false and there is no buffer space, this function returns `false`. If `CanWait` is true, it will block until the timeout is reached. See the ["configuration"](#Configuration) section about how to change the timeout.
 
-**`bool PicoMsgSend (PicoComms* M, const char* Str, bool CanWait=false)`**   :   Same as above, just a little simpler to use, if you have a c-string.
+**`bool PicoSend (PicoComms* M, const char* Str, bool CanWait=false)`**   :   Same as above, just a little simpler to use, if you have a c-string.
 
-**`PicoMessage PicoMsgGet (PicoComms* M, float TimeOut=0)`**   :   Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
+**`PicoMessage PicoGet (PicoComms* M, float TimeOut=0)`**   :   Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
 
     struct PicoMessage {
         int   Length;
         char* Data;
     };
 
-This is what you get back. This gives you the `Length` of the data, and the `Data` itself. `Data` from `PicoMsgGet`, is allocated with `malloc` and you must to `free` it after you are finished with it.
+This is what you get back. This gives you the `Length` of the data, and the `Data` itself. `Data` from `PicoGet`, is allocated with `malloc` and you must to `free` it after you are finished with it.
 
 If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
 
@@ -64,18 +64,18 @@ If you are a C++ expert you might try to find the C++ Spiders I have left in the
 
 These functions are not always needed, but available in case you need them.
 
-**`int PicoMsgErr (PicoComms* M);`**   :   Returns an error that forced comms to close. If the comms is still open, the error is 0.
+**`int PicoErr (PicoComms* M);`**   :   Returns an error that forced comms to close. If the comms is still open, the error is 0.
 
-**`void PicoMsgClose (PicoComms* M)`**   :   Closes the comms object. Does not destroy it. Useful if you have many places that might need to close the comms, but only one place that will destroy it. It acceptable to close a comms twice!
+**`void PicoClose (PicoComms* M)`**   :   Closes the comms object. Does not destroy it. Useful if you have many places that might need to close the comms, but only one place that will destroy it. It acceptable to close a comms twice!
 
-**`bool PicoMsgStillSending (PicoComms* M)`**   :   Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending.
+**`bool PicoStillSending (PicoComms* M)`**   :   Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending.
     
-**`void* PicoMsgSay (PicoComms* M, const char* A, const char* B="", int Iter=0);`**   :   Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name. (`Name` is settable via PicoMsgConfig).
+**`void* PicoSay (PicoComms* M, const char* A, const char* B="", int Iter=0);`**   :   Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name. (`Name` is settable via `PicoConfig`).
     
 
 ### Configuration
 
-Use the config function to get the config struct. **`PicoConfig* PicoMsgConf (PicoComms* M)`** You can configure "noise", "timeout", "name", and the maximum unread-message queue size.
+Use the config function to get the config struct. **`PicoConfig* PicoConf (PicoComms* M)`** You can configure "noise", "timeout", "name", and the maximum unread-message queue size.
 
 
     struct PicoMessageConfig {
@@ -95,7 +95,7 @@ Use the config function to get the config struct. **`PicoConfig* PicoMsgConf (Pi
 	/* The amount of printing to StdOut that PicoMsg does.*/
     };
 
-The `Noise` field, can be set to any of the below items. It can also be set on creating the comms object using PicoMsgComms. You can set it to silent, if you want PicoMsg to not be too "noisy" on StdOut. To set it to PicoNoiseAll to be the noisiest.
+The `Noise` field, can be set to any of the below items. You can set it to silent, if you want PicoMsg to not be too "noisy" on StdOut. To set it to PicoNoiseAll to be the noisiest.
 
     PicoSilent
     PicoNoiseDebugChild	

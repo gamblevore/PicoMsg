@@ -18,7 +18,7 @@ uint hash (uint x) {
 void* ThreadQuery (void* TM) {
 	PicoComms* M = (PicoComms*)TM;
 	M->Conf.Name = "Query";
-	PicoMsgSendStr(M, "mary had a little lamb");
+	PicoSendStr(M, "mary had a little lamb");
 	const int Stack = 49; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
 	for (int i = 0; i < Stack*Pudge; i++) {
@@ -30,17 +30,17 @@ void* ThreadQuery (void* TM) {
 	char* abc = &abcd[0];
 	int Remain = Stack*Pudge;
 	while (Remain > 0) {
-		if (PicoMsgErr(M)) return PicoMsgSay(M, "Exit: CantSendAll");
+		if (PicoErr(M)) return PicoSay(M, "Exit: CantSendAll");
 
 		int n = hash(Remain) % Pudge;
 		if (n > Remain) n = Remain;
 		if (n < 1) n = 1;
 		Remain -= n;
 		Sent.push_back({n, abc});
-		PicoMsgSend(M, {n, abc}, PicoSendCanTimeOut);
-		auto Back = PicoMsgGet(M);
+		PicoSend(M, {n, abc}, PicoSendCanTimeOut);
+		auto Back = PicoGet(M);
 		if (Back) {
-			PicoMsgSay(M, "User Got:", "", Back.Length);
+			PicoSay(M, "User Got:", "", Back.Length);
 			Got.push_back(Back);
 		}
 		abc += n;
@@ -50,75 +50,80 @@ void* ThreadQuery (void* TM) {
 		abcd[i] ++;
 	}
 
-	PicoMsgSay(M, "Comparing", "", (int)Sent.size());
+	PicoSay(M, "Comparing", "", (int)Sent.size());
 	
-	while (auto Back = PicoMsgGet(M, 7*(Sent.size() > Got.size()))) {
+	while (auto Back = PicoGet(M, 7*(Sent.size() > Got.size()))) {
 		Got.push_back(Back);
 	}
 
 	if (int Diff = (int)(Sent.size() - Got.size()); Diff) 
-		return PicoMsgSay(M, "Missing Responses: ", "", Diff);
+		return PicoSay(M, "Missing Responses: ", "", Diff);
 
 	for (int i = 0; i < Sent.size(); i++) {
 		auto& v = Sent[i];
 		auto& OK = Got[i];
-		if (OK.Length != v.Length)				return PicoMsgSay(M, "Exit: BadLength");
+		if (OK.Length != v.Length)				return PicoSay(M, "Exit: BadLength");
 		int diff = memcmp(v.Data, OK.Data, v.Length);
-		if (diff)								return PicoMsgSay(M, "Exit: BadContents");
+		if (diff)								return PicoSay(M, "Exit: BadContents");
 		abc += v.Length;
-		PicoMsgSay(M, "Passed", "", i+1);
+		PicoSay(M, "Passed", "", i+1);
 		free(OK.Data);
 	}
-	PicoMsgClose(M);
-	return PicoMsgSay(M, "Exit: Tests Passed!");
+	PicoClose(M);
+	return PicoSay(M, "Exit: Tests Passed!");
 }
 
 
+bool GetAndSay (PicoComms* M, float t = 0, bool Final=false) {
+	auto Mary = PicoGet(M, t);
+	if (Mary.Data) {
+		PicoSay(M, "Got", Mary.Data);
+		free(Mary.Data);
+		return true;
+	}
+	if (t > 0 and !Final)
+		PicoSay(M, "failed get");
+	return false;
+}
+
 void* ThreadRespond (PicoComms* M) {
 	M->Conf.Name = "Respond";
-	auto Mary = PicoMsgGet(M, 6.0);
-	PicoMsgSay(M, "WasAsked", Mary.Data);
-	free(Mary.Data);
+	GetAndSay(M, 6.0);
 	
 	int n = 0;
-	while (!PicoMsgErr(M)) {
-		auto Msg = PicoMsgGet(M, 1.3);
+	while (!PicoErr(M)) {
+		auto Msg = PicoGet(M, 1.3);
 		if (!Msg) {
-			PicoMsgSay(M, "NoMoreInput", "", n);
+			PicoSay(M, "NoMoreInput", "", n);
 			break;
 		}
 
 		for (int i = 0; i < Msg.Length; i++) {
 			(Msg.Data)[i]++;
 		}
-		PicoMsgSend(M, Msg, PicoSendCanTimeOut);
+		PicoSend(M, Msg, PicoSendCanTimeOut);
 		free(Msg.Data);
 		n++;
 	}
 	
-	PicoMsgSay(M, "Responses Given:", "", n);
-	PicoMsgDestroy(M);
+	PicoSay(M, "Responses Given:", "", n);
+	PicoDestroy(M);
 	return nullptr;
 }
 
 
 int TestPair (PicoComms* C) {
-	auto C2 = PicoMsgStartChild(C);
+	auto C2 = PicoStartChild(C);
 	if (C2) {
-		PicoMsgSendStr(C, "pear🍐🍐🍐test");
-		auto Msg = PicoMsgGet(C2, 2.0);
-		if (Msg.Data)
-			PicoMsgSay(C2, "WasAsked", Msg.Data);
-		  else
-			PicoMsgSay(C2, "failed get");
-		free(Msg.Data); // always free what you get back!
+		PicoSendStr(C, "pear🍐🍐🍐test");
+		GetAndSay(C2, 2.0);
 	}
-	PicoMsgDestroy(C2);
+	PicoDestroy(C2);
 	return 0;	
 }
 
 
-int TestWrite(char* Out, int i, char Base) {
+int TestWrite(char* Out, int i, char Base=0) {
 	int j = 0;
 	for (int reps = 0; reps <= i % 3; reps++) {
 		int x = i;
@@ -137,9 +142,9 @@ int TestWrite(char* Out, int i, char Base) {
 int RecIndex = 0;
 bool TestIntenseCompare (PicoComms* C, float T) {
 	char Expected[20] = {};
-	auto Rec = PicoMsgGet(C, T); if (!Rec) return false;
+	auto Rec = PicoGet(C, T); if (!Rec) return false;
 	auto Found = Rec.Data;
-	TestWrite(Expected, RecIndex, 0);
+	TestWrite(Expected, RecIndex);
 	printf("<-- %s %i\n", Found, RecIndex);
 	bool Rz = strcmp(Expected, Found) == 0;
 	if (!Rz) {
@@ -153,7 +158,7 @@ bool TestIntenseCompare (PicoComms* C, float T) {
 
 
 int TestIntense (PicoComms* C) {
-	int PID = PicoMsgStartFork(C);
+	int PID = PicoStartFork(C);
 	C->Conf.Noise = PicoNoiseAll;
 	if (PID < 0)
 		return -PID;
@@ -161,66 +166,125 @@ int TestIntense (PicoComms* C) {
 		C->Conf.Name = "Tester";
 		char Out[20] = {}; memset(Out, -1, sizeof(Out));
 		PicoMessage Snd = {0, Out};
-		PicoMsgSay(C, "Asks intensely");
+		PicoSay(C, "Asks intensely");
 		int MaxTests = 100000;
 		for (int i = 0; i < MaxTests; i++) {
 			Snd.Length = TestWrite(Out, i, 1);
-			if (!PicoMsgSend(C, Snd))
-				return !PicoMsgSay(C, "Exitting Sadly");
-			PicoMsgSay(C, "Sending", Snd.Data, i);
+			if (!PicoSend(C, Snd))
+				return !PicoSay(C, "Exitting Sadly");
+			PicoSay(C, "Sending", Snd.Data, i);
 			while (TestIntenseCompare(C, 0)) {;}
 		}
-		PicoMsgSay(C, "AllSent!");
+		PicoSay(C, "AllSent!");
 		while (RecIndex < MaxTests and TestIntenseCompare(C, 10)) {;}
-		PicoMsgSay(C, "strings compared", "", RecIndex);
-		PicoMsgClose(C);
+		PicoSay(C, "strings compared", "", RecIndex);
+		PicoClose(C);
 
 	} else {
 		C->Conf.Name = "Fixer";
 		int Back = 0;
 		char Out[20] = {}; memset(Out,-1,sizeof(Out));
-		while (auto Msg = PicoMsgGet(C, 10.0)) {
+		while (auto Msg = PicoGet(C, 10.0)) {
 			auto D = Msg.Data; Msg.Data = Out;
 			int n = Msg.Length-1;
 			for (int j = 0; j < n; j++)
 				Out[j] = D[j] - 1;
 			Out[n] = 0;
 
-			if (!PicoMsgSend(C, Msg))
-				return !PicoMsgSay(C, "Exitting Sadly");
+			if (!PicoSend(C, Msg))
+				return !PicoSay(C, "Exitting Sadly");
 			free(D);
 			Back++;
-			if (PicoMsgErr(C)) break;
+			if (PicoErr(C)) break;
 		}
-		PicoMsgSay(C, "NoMoreInput", "", Back);
+		PicoSay(C, "NoMoreInput", "", Back);
 		
-		while (PicoMsgStillSending(C))
+		while (PicoStillSending(C))
 			sleep(1);
 	}
 	
-	PicoMsgSay(C, "Acheived"); return 0;	
+	PicoSay(C, "Acheived"); return 0;	
 }
 
 int TestThread (PicoComms* C) {
-	if (!PicoMsgStartThread(C, ThreadRespond)) return -1;
+	if (!PicoStartThread(C, ThreadRespond)) return -1;
 	ThreadQuery(C);
 	sleep(2); // let ThreadRespond exit
 	return 0;	
 }
 
 
+extern char **environ;
+
+bool fd_valid (int fd) {
+	if (fd >= FD_SETSIZE)
+		return false;
+	if (fcntl(fd, F_GETFL) == -1 and errno == EBADF)
+		return false;
+	return true;
+}
+
+void list_fds (const char* A) {
+	for (int i = 0; i < FD_SETSIZE; i++) 
+		if (fd_valid(i))
+			printf("%s: %i\n", A, i);
+}
+
+int TestExec (PicoComms* C, const char* self) {
+	// so... fork, exec, then send messages to it.
+	int PID = PicoStartFork(C, 567);
+	if (!PID) { // we are the child... lets exec ourself
+		const char* args[3] = {self, "exec", 0};
+		return execve(self, (char**)args, environ); // in case it failed.
+	}
+
+	char Data[20];
+	int Back = 0;
+	PicoMessage M = {0, Data};
+	for (int i = 0; i < 10000; i++) {
+		M.Length = TestWrite(Data, i+999);
+		if (PicoSend(C, M))
+			PicoSay(C, "Sent", Data);
+		Back += GetAndSay(C);
+	}
+	sleep(1);
+	while (GetAndSay(C, 1, true)) {Back++;}
+	
+	PicoSay(C, "Total", "", Back);
+	return 0;
+}
+
+
+int TestExec2 (PicoComms* C) {
+	if (!PicoStartSocket(C, 567)) return -1;
+	while (auto M = PicoGet(C, 1)) {
+		if (!M)
+			return 0;
+		PicoSay(C, "Got", M.Data);
+		for (int i = 0; i < M.Length-1; i++)
+			M.Data[i]++;
+		PicoSend(C, M);
+	}
+	return 0;
+}
+
+
 int main (int argc, const char * argv[]) {
-	auto C = PicoMsgCreate();
+	auto C = PicoCreate();
 	int rz = 0;
 	const char* S = argv[1];
-	if (!S) S = "3";
+	if (!S) S = "5";
 	if (strcmp(S, "1")==0)
 		rz = TestIntense(C);
 	 else if (strcmp(S, "2")==0)
 		rz = TestPair(C);
+	 else if (strcmp(S, "3")==0)
+		rz = TestExec(C, argv[0]);
+	 else if (strcmp(S, "exec")==0)
+		rz = TestExec2(C);
 	 else
 		rz = TestThread(C);
-	PicoMsgDestroy(C);
+	PicoDestroy(C);
 	return rz;
 }
 
