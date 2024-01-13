@@ -308,18 +308,16 @@ struct PicoComms : PicoCommsBase {
 		IsParent = pid!=0; // 🕷️_🕷️
 		close(Socks[!IsParent]);
 		int S = Socks[IsParent];
-		if (IsParent) {
-			add_conn(S);
-		} else {
+		if (!IsParent) {
 			pico_thread_count = 0; // Unix doesn't let us keep threads.
 			if (ExecSocket) {
 				dup2(S, ExecSocket);
 				close(S); S = ExecSocket;
-			} else {
-				add_conn(S);
+				return pid;
 			}
 		} 
 
+		add_conn(S);
 		return pid; 
 	}
 	
