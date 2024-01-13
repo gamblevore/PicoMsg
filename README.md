@@ -32,7 +32,7 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 ### Initialisation / Destruction
 
-Start by calling `PicoCreate`, then call either `PicoStartChild `, `PicoStartThread ` or `PicoStartFork `. Call `PicoDestroy` when you are finsished.
+Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThread` or `PicoStartFork`. Call `PicoDestroy` when you are finsished.
 
 **`PicoComms* PicoCreate ()`**   :   Creates your message-passer.
 
