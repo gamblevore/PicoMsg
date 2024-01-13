@@ -32,7 +32,7 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 ### Initialisation / Destruction
 
-Start by calling `PicoCreate`, then call either `PicoStartChild `, `PicoStartThread ` or `PicoStartFork `. Call `PicoDestroy` when you are finsished.
+Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThread` or `PicoStartFork`. Call `PicoDestroy` when you are finsished.
 
 **`PicoComms* PicoCreate ()`**   :   Creates your message-passer.
 
@@ -42,7 +42,7 @@ Start by calling `PicoCreate`, then call either `PicoStartChild `, `PicoStartThr
 
 **`pid_t PicoStartFork (PicoComms* M, int ExecSocket=0)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from `fork()`. So -1 means an error occurred, just like it does in `fork()`.
 
-Passing a non-zero number to ExecSocket means that you are preparing for a call to any of the `execve()` family, this will fork the app, but not allow reading or sending (or else we would lose received messages before execve!!). Once you have done your execve, your child process should now call `PicoStartSocket(PicoComms* M, int Socket)`. The number passed to `Socket` must be the same as you sent to `PicoStartFork`. Honestly it sounds complex but just look at PicoTest.cpp for a good example.
+Passing a non-zero number to ExecSocket means that you are preparing for a call to any of the `execve()` family. Its kinda complex to explain, so just look at PicoTest.cpp for a good example. The main thing this does is let you choose a FD number, and delays reading of messages until the child process calls `PicoStartSocket`.
 
 
 ### Communication
