@@ -42,7 +42,7 @@ Start by calling `PicoCreate`, then call either `PicoStartChild `, `PicoStartThr
 
 **`pid_t PicoStartFork (PicoComms* M, int ExecSocket=0)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from `fork()`. So -1 means an error occurred, just like it does in `fork()`.
 
-Passing a non-zero number to ExecSocket means that you are preparing for a call to any of the `execve()` family. Its kinda complex to explain, so just look at PicoTest.cpp for a good example. The main thing this does is let you choose a FD number, and delays reading of messages.
+Passing a non-zero number to ExecSocket means that you are preparing for a call to any of the `execve()` family. Its kinda complex to explain, so just look at PicoTest.cpp for a good example. The main thing this does is let you choose a FD number, and delays reading of messages until the child process calls `PicoStartFork`.
 
 
 ### Communication
