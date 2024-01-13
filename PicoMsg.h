@@ -22,8 +22,11 @@
 #define PicoNoiseAll			15
 #define PicoSendGiveUp			0
 #define PicoSendCanTimeOut		1
-#ifndef PicoDesiredThreadCount
-	#define PicoDesiredThreadCount	2
+#ifndef PicoDefaultInitSize
+	#define PicoDefaultInitSize (1024*1024)
+#endif
+#ifndef PicoParentSocketNum
+	#define PicoParentSocketNum (987)
 #endif
 #include <stdint.h> // for picodate
 
@@ -92,6 +95,25 @@ static void pico_sleep (float S) {
 	nanosleep(&ts, 0);
 }
 
+extern "C" bool pico_dup2(int from, int to) { // so this kinda does what dup2 should do.
+	while (from > 0 and dup2(from, to) == -1) {
+		int err = errno;
+		if (err != EINTR and err != EBUSY)	
+			return false;
+	}
+	return true;
+}
+
+extern "C" int pico_dup(int from) { // this is what dup should do.
+	int to = -1;
+	while ((to = dup(from)) == -1) {
+		int err = errno;
+		if (err != EINTR and err != EBUSY)	
+			break;
+	}
+	return to;
+}
+
 
 
 PicoTrousers PicoCommsLocker;
@@ -142,9 +164,10 @@ static	PicoCommsBase		pico_list;
 static	PicoDate			pico_last_activity;
 static	void*				pico_worker (PicoComms* Dummy);
 static	std::atomic_int		pico_thread_count;
+static	int					pico_desired_thread_count = 2;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
+int							pico_start (PicoComms* ErrorPlace);
 
- 
 struct PicoBuff {
 	const char*			Name;
 	std::atomic_uint	Tail;
@@ -253,9 +276,8 @@ struct PicoComms : PicoCommsBase {
 	PicoBuff*					Sending;
 	
 	PicoComms (int noise, bool isparent, int Size) {
-		RefCount = 1; Socket = -1; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0;
+		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0;
 		memset(&Conf, 0, sizeof(PicoConfig)); 
-		Conf.Name = 0;
 		Conf.Noise = noise;
 		Conf.SendTimeOut = 10.0f;
 
@@ -271,8 +293,8 @@ struct PicoComms : PicoCommsBase {
 		really_close();
 		for (auto& M:TheQueue)
 			free(M.Data);
-		Sending->Decr();
-		Reading->Decr();
+		if (Sending) Sending->Decr();
+		if (Sending) Reading->Decr();
 	}
 
 	PicoComms* InitPair (int Noise) {
@@ -287,11 +309,12 @@ struct PicoComms : PicoCommsBase {
 	bool InitThread (int Noise, PicoThreadFn fn) {
 		if (!alloc_buffs()) return false;
 		PicoComms* C = new PicoComms(Noise, false, 0);
-		Sending->RefCount++; C->Reading = Sending; 
-		Reading->RefCount++; C->Sending = Reading;
+		Sending->RefCount++;     Reading->RefCount++;  Socket = -1;   
+		C->Sending = Reading; C->Reading = Sending; C->Socket = -1;
+		
 		add_sub();
 		C->add_sub();
-		return thread_run(fn, C);
+		return thread_run(C, fn);
 	}
 	
 	bool InitSocket (int Sock) {
@@ -299,7 +322,13 @@ struct PicoComms : PicoCommsBase {
 		return (Sock > 0 or failed(EBADF)) and add_conn(Sock);
 	}
 
-	pid_t InitFork (int ExecSocket) {
+	bool InitExec (int Sock) {
+		int NewSock = pico_dup(Sock); // free up the number. In case we wanna exec all over again.
+		close(Sock);
+		return InitSocket(NewSock); 
+	}
+
+	pid_t InitFork (bool WillExec) {
 		int Socks[2] = {};
 		if (!get_pair_of(Socks)) return -errno;
 		pid_t pid = fork();
@@ -310,9 +339,9 @@ struct PicoComms : PicoCommsBase {
 		int S = Socks[IsParent];
 		if (!IsParent) {
 			pico_thread_count = 0; // Unix doesn't let us keep threads.
-			if (ExecSocket) {
-				dup2(S, ExecSocket);
-				close(S); S = ExecSocket;
+			if (WillExec) {
+				pico_dup2(S, PicoParentSocketNum);
+				close(S); S = PicoParentSocketNum;
 				return pid;
 			}
 		} 
@@ -326,7 +355,7 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	bool QueueSend (const char* msg, int n, int Policy) {
-		if (HalfClosed&2) return false;
+		if (!msg or n <= 0 or HalfClosed&2 or !Sending) return false;
 		if (queue_sub(msg, n)) return true;
 		if (n+4 > Sending->Size)
 			return SayEvent("CantSend: Message too large!");
@@ -390,7 +419,7 @@ struct PicoComms : PicoCommsBase {
 //// INTERNALS ////
 	
 	bool queue_sub (const char* msg, int n) {
-		return Sending->AppendMsg(msg, n); // in case I wanna put debug tests here.
+		return Sending and Sending->AppendMsg(msg, n); // in case I wanna put debug tests here.
 	}
 
 	void do_reading () {
@@ -482,13 +511,18 @@ struct PicoComms : PicoCommsBase {
 			Sending = PicoBuff::New(Conf.Bits, "Send", this);
 		if (!Reading)
 			Reading = PicoBuff::New(Conf.Bits, "Read", this);
-		return (Reading and Sending and pico_start()) or failed(ENOBUFS);
+
+		if (Reading and Sending and pico_start(this)) return true;
+		
+		return really_close() or failed(ENOBUFS);
 	}
 
 	bool add_conn (int Sock) {
+		int FL = fcntl(Sock, F_GETFL, 0);
+		if (FL == -1) return failed() or Say("Bad Socket", "", Sock);
 		if (!alloc_buffs()) return false;
 		Socket = Sock;
-		fcntl(Socket, F_SETFL, fcntl(Sock, F_GETFL, 0) | O_NONBLOCK);
+		fcntl(Socket, F_SETFL, FL | O_NONBLOCK);
 		return add_sub();
 	}
 
@@ -497,22 +531,13 @@ struct PicoComms : PicoCommsBase {
 		return !SayEvent("Started");
 	}
 	
-	bool thread_run (PicoThreadFn fn, PicoComms* M) {
+	static bool thread_run (PicoComms* C, PicoThreadFn fn) {
 		pthread_t T = 0;   ;;;/*_*/;;;   // creeping upwards!!
-		if (!pthread_create(&T, nullptr, (void*(*)(void*))fn, M) and !pthread_detach(T))
+		if (!pthread_create(&T, nullptr, (void*(*)(void*))fn, C) and !pthread_detach(T))
 			return true;
-		return Say("Thread Failed");
+		return !C or C->Say("Thread Failed");
 	}
 	
-	bool pico_start () {
-		for (int i = pico_thread_count; i < PicoDesiredThreadCount; i++)
-			if (!thread_run(pico_worker, nullptr) and i == 0)
-				return really_close(); // 1 thread is still OK.
-
-		return true;
-	}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
-
-
 	void report_closed_buffers () {
 		if (CanSayDebug() and HalfClosed != -1 ) {
 			int SL = Sending->Length();
@@ -589,6 +614,14 @@ static void pico_work_comms () {
 	pico_sleep(S);
 }
 
+int pico_start (PicoComms* ErrorPlace) {
+	for (int i = pico_thread_count; i < pico_desired_thread_count; i++)
+		if (!PicoComms::thread_run(ErrorPlace, pico_worker))
+			return i;
+
+	return pico_desired_thread_count;
+}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
+
 
 static void* pico_worker (PicoComms* Dummy) {
 	pico_thread_count++;
@@ -602,25 +635,25 @@ static void* pico_worker (PicoComms* Dummy) {
 
 
 /// C-API ///
-/// **initialisation / destruction** ///
+/// **Initialisation / Destruction** ///
 extern "C" PicoComms* PicoCreate ()  _pico_code_ (
-	return new PicoComms(PicoNoiseEvents, true, 1024*1024);
+	return new PicoComms(PicoNoiseEvents, true, PicoDefaultInitSize);
 )
 
 extern "C" PicoComms* PicoStartChild (PicoComms* M) _pico_code_ (
 	return M->InitPair(PicoNoiseEvents);
 )
 
-extern "C" bool PicoStartSocket (PicoComms* M, int Sock) _pico_code_ (
-	return M->InitSocket(Sock);
+extern "C" bool PicoCompleteExec (PicoComms* M) _pico_code_ (
+	return M->InitExec(PicoParentSocketNum);
 )
 
 extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
 	return M->InitThread(PicoNoiseEvents, fn);
 ) 
 
-extern "C" int PicoStartFork (PicoComms* M, int ChildSock=0) _pico_code_ (
-	return M?M->InitFork(ChildSock):fork();
+extern "C" int PicoStartFork (PicoComms* M, bool WillExec=false) _pico_code_ (
+	return M?M->InitFork(WillExec):fork();
 )
 
 extern "C" void PicoDestroy (PicoComms* M) _pico_code_ (
@@ -628,9 +661,9 @@ extern "C" void PicoDestroy (PicoComms* M) _pico_code_ (
 )
 
 
-/// **communications** ///
+/// **Communications** ///
 extern "C" bool PicoSend (PicoComms* M, PicoMessage Msg, int Policy=PicoSendGiveUp) _pico_code_ (
-	return (Msg and Msg.Length > 0) and M->QueueSend(Msg.Data, Msg.Length, Policy);
+	return M->QueueSend(Msg.Data, Msg.Length, Policy);
 )
 
 extern "C" bool PicoSendStr (PicoComms* M, const char* Msg, bool Policy=PicoSendGiveUp) _pico_code_ (
@@ -642,7 +675,7 @@ extern "C" PicoMessage PicoGet (PicoComms* M, float Time=0) _pico_code_ (
 )
 
 
-/// **utilities** ///
+/// **Utilities** ///
 extern "C" void PicoClose (PicoComms* M) _pico_code_ (
 	M->AskClose();
 )
@@ -664,7 +697,16 @@ extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
 )
 
 extern "C" int PicoSocket (PicoComms* M) _pico_code_ (
-	return M->Socket;
+	return M?M->Socket:0;
+)
+
+bool PicoHasParent () _pico_code_ (
+	return !(fcntl(PicoParentSocketNum, F_GETFL) == -1 and errno == EBADF);
+)
+
+bool PicoDesiredThreadCount (int C) _pico_code_ (
+	pico_desired_thread_count = C;
+	return !pico_list.Next or pico_start(nullptr);
 )
 
 
