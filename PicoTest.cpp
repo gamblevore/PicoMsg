@@ -216,23 +216,9 @@ int TestThread (PicoComms* C) {
 
 extern char **environ;
 
-bool fd_valid (int fd) {
-	if (fd >= FD_SETSIZE)
-		return false;
-	if (fcntl(fd, F_GETFL) == -1 and errno == EBADF)
-		return false;
-	return true;
-}
-
-void list_fds (const char* A) {
-	for (int i = 0; i < FD_SETSIZE; i++) 
-		if (fd_valid(i))
-			printf("%s: %i\n", A, i);
-}
-
 int TestExec (PicoComms* C, const char* self) {
 	// so... fork, exec, then send messages to it.
-	int PID = PicoStartFork(C, 567);
+	int PID = PicoStartFork(C, true);
 	if (!PID) { // we are the child... lets exec ourself
 		const char* args[3] = {self, "exec", 0};
 		return execve(self, (char**)args, environ); // in case it failed.
@@ -256,7 +242,9 @@ int TestExec (PicoComms* C, const char* self) {
 
 
 int TestExec2 (PicoComms* C) {
-	if (!PicoStartSocket(C, 567)) return -1;
+	if (!PicoHasParent())
+		return -!PicoSay(C, "Has No Pico Parent!");
+	if (!PicoCompleteExec(C)) return -1;
 	while (auto M = PicoGet(C, 1)) {
 		if (!M)
 			return 0;
