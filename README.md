@@ -38,7 +38,9 @@ Start by calling `PicoCreate`, then call either `PicoStartChild `, `PicoStartThr
 
 **`bool PicoStartThread (PicoComms* M, PicoThreadFn fn)`**   :   Creates a new thread, using the function "fn", and passes a new PicoComms object to it!. Returns false if any error occurred.
 
-**`pid_t PicoStartFork (PicoComms* M)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from fork(). Same numbers as `fork()` returns. Such as that -1 means an error occurred.
+**`pid_t PicoStartFork (PicoComms* M, int ExecSocket=0)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from `fork()`. So -1 means an error occurred, just like it does in `fork()`.
+
+Passing a non-zero number to ExecSocket means that you are preparing for a call to any of the `execve()` family, this will fork the app, but not allow reading or sending (or else we would lose received messages before execve!!). Once you have done your execve, your child process should now call `PicoStartSocket(PicoComms* M, int Socket)`. The number passed to `Socket` must be the same as you sent to `PicoStartFork`.
 
 **`void PicoDestroy (PicoComms* M)`**   :   Destroys the PicoComms object, and reclaims memory. Also closes the other side.
 
