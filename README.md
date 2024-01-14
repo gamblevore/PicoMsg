@@ -38,7 +38,7 @@ Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThre
 
 **`void PicoDestroy (PicoComms* M)`**   :   Destroys the PicoComms object, and reclaims memory. Also closes the other side.
 
-**`bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj1 = 0, void* Obj2 = 0)`**   :   Creates a new thread, using the function "fn", and passes a newly created PicoComms object to your function! Also cleans up the newly created PicoComms when done. Returns `false` if any error occurred. Look at PicoTest.cpp for a good example. :) You can pass two user-defined parameters.
+**`bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj1 = nullptr, const char** Args = nullptr)`**   :   Creates a new thread, using the function "fn", and passes a newly created PicoComms object to your function! Also cleans up the newly created PicoComms when done. Returns `false` if any error occurred. Look at PicoTest.cpp for a good example. :) You can pass two user-defined parameters.
 
 **`pid_t PicoStartFork (PicoComms* M, bool WillExec=false)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from `fork()`. So -1 means an error occurred, just like it does in `fork()`.
 
