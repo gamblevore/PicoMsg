@@ -5,6 +5,7 @@
 #include <vector>
 using std::vector;
 
+
 uint hash (uint x) {
 	x ^= x >> 16;
 	x *= UINT32_C(0x7feb352d);
@@ -86,7 +87,8 @@ bool GetAndSay (PicoComms* M, float t = 0, bool Final=false) {
 	return false;
 }
 
-void* ThreadRespond (PicoComms* M) {
+
+bool ThreadRespond (PicoComms* M, void* Args, void* Obj) {
 	M->Conf.Name = "Respond";
 	GetAndSay(M, 6.0);
 	
@@ -107,8 +109,7 @@ void* ThreadRespond (PicoComms* M) {
 	}
 	
 	PicoSay(M, "Responses Given:", "", n);
-	PicoDestroy(M);
-	return nullptr;
+	return false;
 }
 
 
@@ -138,6 +139,7 @@ int TestWrite(char* Out, int i, char Base=0) {
 	Out[j] = 0;
 	return j+1;
 }
+
 
 int RecIndex = 0;
 bool TestIntenseCompare (PicoComms* C, float T) {
@@ -261,7 +263,7 @@ int main (int argc, const char * argv[]) {
 	auto C = PicoCreate();
 	int rz = 0;
 	const char* S = argv[1];
-	if (!S) S = "5";
+	if (!S) S = "4";
 	if (strcmp(S, "1")==0)
 		rz = TestIntense(C);
 	 else if (strcmp(S, "2")==0)

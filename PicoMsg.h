@@ -37,7 +37,7 @@ struct			PicoMessage { int Length;  char* Data;  operator bool () {return Data;}
 
 struct 			PicoConfig  { const char* Name;  PicoDate LastRead;  int Noise;  float SendTimeOut;  int SendFailed;  int ReadFailed;  int QueueBytesRemaining;  int Bits; };
 
-typedef void* (*PicoThreadFn)(PicoComms* M);
+typedef bool (*PicoThreadFn)(PicoComms* M, void* Obj1, void* Obj2);
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -162,11 +162,10 @@ struct PicoCommsBase {
 
 static	PicoCommsBase		pico_list;
 static	PicoDate			pico_last_activity;
-static	void*				pico_worker (PicoComms* Dummy);
 static	std::atomic_int		pico_thread_count;
 static	int					pico_desired_thread_count = 2;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
-int							pico_start (PicoComms* ErrorPlace);
+bool						pico_start ();
 
 struct PicoBuff {
 	const char*			Name;
@@ -306,15 +305,38 @@ struct PicoComms : PicoCommsBase {
 		return Rz;
 	}
 
-	bool InitThread (int Noise, PicoThreadFn fn) {
+	struct PicoThreadData {
+		PicoComms* C; PicoThreadFn fn; void* Obj1; void* Obj2;
+	};
+
+	static void* pico_thread_wrapper (void* Args) {
+		PicoThreadData* D = (PicoThreadData*)Args;
+		(D->fn)(D->C, D->Obj1, D->Obj2);
+		(D->C)->Destroy();
+		free(D);
+		return 0;
+	}
+
+	static bool thread_run (PicoComms* C, PicoThreadFn fn, void* Obj1, void* Obj2) {
+		pthread_t T = 0;   ;;;/*_*/;;;   // creeping upwards!!
+		auto D = (PicoThreadData*)malloc(sizeof(PicoThreadData));
+		D->C = C; D->fn = fn; D->Obj1 = Obj1; D->Obj2 = Obj2;
+		if (!pthread_create(&T, nullptr, pico_thread_wrapper, D) and !pthread_detach(T))
+			return true;
+		C->Say("ThreadFailed");
+		free(D);
+		return false;
+	}
+
+	bool InitThread (int Noise, PicoThreadFn fn, void* Obj1, void* Obj2) {
 		if (!alloc_buffs()) return false;
-		PicoComms* C = new PicoComms(Noise, false, 0);
+		PicoComms* C = new PicoComms(Noise, false, 1<<Conf.Bits);
 		Sending->RefCount++;     Reading->RefCount++;  Socket = -1;   
 		C->Sending = Reading; C->Reading = Sending; C->Socket = -1;
 		
 		add_sub();
 		C->add_sub();
-		return thread_run(C, fn);
+		return thread_run(C, fn, Obj1, Obj2);
 	}
 	
 	bool InitSocket (int Sock) {
@@ -512,7 +534,7 @@ struct PicoComms : PicoCommsBase {
 		if (!Reading)
 			Reading = PicoBuff::New(Conf.Bits, "Read", this);
 
-		if (Reading and Sending and pico_start(this)) return true;
+		if (Reading and Sending and pico_start()) return true;
 		
 		return really_close() or failed(ENOBUFS);
 	}
@@ -529,14 +551,7 @@ struct PicoComms : PicoCommsBase {
 	bool add_sub () {
 		pico_list.AddComm(this);
 		return !SayEvent("Started");
-	}
-	
-	static bool thread_run (PicoComms* C, PicoThreadFn fn) {
-		pthread_t T = 0;   ;;;/*_*/;;;   // creeping upwards!!
-		if (!pthread_create(&T, nullptr, (void*(*)(void*))fn, C) and !pthread_detach(T))
-			return true;
-		return !C or C->Say("Thread Failed");
-	}
+	}  ;;;/*_*/;;;   // creeping upwards!!
 	
 	void report_closed_buffers () {
 		if (CanSayDebug() and HalfClosed != -1 ) {
@@ -614,21 +629,25 @@ static void pico_work_comms () {
 	pico_sleep(S);
 }
 
-int pico_start (PicoComms* ErrorPlace) {
-	for (int i = pico_thread_count; i < pico_desired_thread_count; i++)
-		if (!PicoComms::thread_run(ErrorPlace, pico_worker))
-			return i;
 
-	return pico_desired_thread_count;
-}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
-
-
-static void* pico_worker (PicoComms* Dummy) {
+static void* pico_worker (void* Dummy) {
 	pico_thread_count++;
 	pico_last_activity = PicoGetDate(); // get to work!
 	while (true) pico_work_comms();
 	pico_thread_count--; // nice
 }
+
+bool pico_start () {
+	pthread_t T = 0;   ;;;/*_*/;;;   // creeping downwards!!
+
+	for (int i = pico_thread_count; i < pico_desired_thread_count; i++)
+		if (pthread_create(&T, nullptr, (void*(*)(void*))pico_worker, nullptr) or pthread_detach(T))
+			return false;
+
+	return true;
+}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
+
+
 
 #endif
 
@@ -648,8 +667,8 @@ extern "C" bool PicoCompleteExec (PicoComms* M) _pico_code_ (
 	return M->InitExec(PicoParentSocketNum);
 )
 
-extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn) _pico_code_ (
-	return M->InitThread(PicoNoiseEvents, fn);
+extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Args = 0, void* Obj = 0) _pico_code_ (
+	return M->InitThread(PicoNoiseEvents, fn, Args, Obj);
 ) 
 
 extern "C" int PicoStartFork (PicoComms* M, bool WillExec=false) _pico_code_ (
@@ -706,7 +725,7 @@ bool PicoHasParent () _pico_code_ (
 
 bool PicoDesiredThreadCount (int C) _pico_code_ (
 	pico_desired_thread_count = C;
-	return !pico_list.Next or pico_start(nullptr);
+	return !pico_list.Next or pico_start();
 )
 
 
