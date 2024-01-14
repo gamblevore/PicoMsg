@@ -37,7 +37,7 @@ struct			PicoMessage { int Length;  char* Data;  operator bool () {return Data;}
 
 struct 			PicoConfig  { const char* Name;  PicoDate LastRead;  int Noise;  float SendTimeOut;  int SendFailed;  int ReadFailed;  int QueueBytesRemaining;  int Bits; };
 
-typedef bool (*PicoThreadFn)(PicoComms* M, void* Obj1, void* Obj2);
+typedef bool (*PicoThreadFn)(PicoComms* M, void* self, const char** Args);
 
 #ifndef PICO_IMPLEMENTATION
 	#define _pico_code_(x) ;
@@ -166,6 +166,7 @@ static	std::atomic_int		pico_thread_count;
 static	int					pico_desired_thread_count = 2;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 bool						pico_start ();
+static thread_local PicoComms* pico_thread_parent;
 
 struct PicoBuff {
 	const char*			Name;
@@ -306,21 +307,22 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	struct PicoThreadData {
-		PicoComms* C; PicoThreadFn fn; void* Obj1; void* Obj2;
+		PicoComms* C; PicoThreadFn fn; void* Self; const char** Args;
 	};
-
+	
 	static void* pico_thread_wrapper (void* Args) {
 		PicoThreadData* D = (PicoThreadData*)Args;
-		(D->fn)(D->C, D->Obj1, D->Obj2);
+		pico_thread_parent = D->C;
+		(D->fn)(D->C, D->Self, D->Args);
 		(D->C)->Destroy();
 		free(D);
 		return 0;
 	}
 
-	static bool thread_run (PicoComms* C, PicoThreadFn fn, void* Obj1, void* Obj2) {
+	static bool thread_run (PicoComms* C, PicoThreadFn fn, void* Self, const char** Args) {
 		pthread_t T = 0;   ;;;/*_*/;;;   // creeping upwards!!
 		auto D = (PicoThreadData*)malloc(sizeof(PicoThreadData));
-		D->C = C; D->fn = fn; D->Obj1 = Obj1; D->Obj2 = Obj2;
+		D->C = C; D->fn = fn; D->Self = Self; D->Args = Args;
 		if (!pthread_create(&T, nullptr, pico_thread_wrapper, D) and !pthread_detach(T))
 			return true;
 		C->Say("ThreadFailed");
@@ -328,7 +330,7 @@ struct PicoComms : PicoCommsBase {
 		return false;
 	}
 
-	bool InitThread (int Noise, PicoThreadFn fn, void* Obj1, void* Obj2) {
+	bool InitThread (int Noise, void* Self, PicoThreadFn fn, const char** Args) {
 		if (!alloc_buffs()) return false;
 		PicoComms* C = new PicoComms(Noise, false, 1<<Conf.Bits);
 		Sending->RefCount++;     Reading->RefCount++;  Socket = -1;   
@@ -336,7 +338,7 @@ struct PicoComms : PicoCommsBase {
 		
 		add_sub();
 		C->add_sub();
-		return thread_run(C, fn, Obj1, Obj2);
+		return thread_run(C, fn, Self, Args);
 	}
 	
 	bool InitSocket (int Sock) {
@@ -667,8 +669,8 @@ extern "C" bool PicoCompleteExec (PicoComms* M) _pico_code_ (
 	return M->InitExec(PicoParentSocketNum);
 )
 
-extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Args = 0, void* Obj = 0) _pico_code_ (
-	return M->InitThread(PicoNoiseEvents, fn, Args, Obj);
+extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj=0, const char** Args=0) _pico_code_ (
+	return M->InitThread(PicoNoiseEvents, Obj, fn, Args);
 ) 
 
 extern "C" int PicoStartFork (PicoComms* M, bool WillExec=false) _pico_code_ (
@@ -726,6 +728,10 @@ bool PicoHasParent () _pico_code_ (
 bool PicoDesiredThreadCount (int C) _pico_code_ (
 	pico_desired_thread_count = C;
 	return !pico_list.Next or pico_start();
+)
+
+PicoComms* PicoParent () _pico_code_ (
+	return pico_thread_parent;
 )
 
 

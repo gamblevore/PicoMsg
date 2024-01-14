@@ -88,8 +88,8 @@ bool GetAndSay (PicoComms* M, float t = 0, bool Final=false) {
 }
 
 
-bool ThreadRespond (PicoComms* M, void* Args, void* Obj) {
-	M->Conf.Name = "Respond";
+bool ThreadRespond (PicoComms* M) {
+	M->Conf.Name = "ThreadRespond";
 	GetAndSay(M, 6.0);
 	
 	int n = 0;
@@ -109,7 +109,7 @@ bool ThreadRespond (PicoComms* M, void* Args, void* Obj) {
 	}
 	
 	PicoSay(M, "Responses Given:", "", n);
-	return false;
+	return true;
 }
 
 
@@ -209,7 +209,7 @@ int TestIntense (PicoComms* C) {
 }
 
 int TestThread (PicoComms* C) {
-	if (!PicoStartThread(C, ThreadRespond)) return -1;
+	if (!PicoStartThread(C, (PicoThreadFn)ThreadRespond)) return -1;
 	ThreadQuery(C);
 	sleep(2); // let ThreadRespond exit
 	return 0;	
