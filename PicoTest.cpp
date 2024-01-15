@@ -31,7 +31,7 @@ void* ThreadQuery (void* TM) {
 	char* abc = &abcd[0];
 	int Remain = Stack*Pudge;
 	while (Remain > 0) {
-		if (PicoErr(M)) return PicoSay(M, "Exit: CantSendAll");
+		if (PicoError(M)) return PicoSay(M, "Exit: CantSendAll");
 
 		int n = hash(Remain) % Pudge;
 		if (n > Remain) n = Remain;
@@ -93,7 +93,7 @@ bool ThreadRespond (PicoComms* M) {
 	GetAndSay(M, 6.0);
 	
 	int n = 0;
-	while (!PicoErr(M)) {
+	while (!PicoError(M)) {
 		auto Msg = PicoGet(M, 1.3);
 		if (!Msg) {
 			PicoSay(M, "NoMoreInput", "", n);
@@ -159,7 +159,7 @@ bool TestIntenseCompare (PicoComms* C, float T) {
 }
 
 
-int TestIntense (PicoComms* C) {
+int TestFork (PicoComms* C) {
 	int PID = PicoStartFork(C);
 	C->Conf.Noise = PicoNoiseAll;
 	if (PID < 0)
@@ -197,7 +197,7 @@ int TestIntense (PicoComms* C) {
 				return !PicoSay(C, "Exitting Sadly");
 			free(D);
 			Back++;
-			if (PicoErr(C)) break;
+			if (PicoError(C)) break;
 		}
 		PicoSay(C, "NoMoreInput", "", Back);
 		
@@ -263,9 +263,9 @@ int main (int argc, const char * argv[]) {
 	auto C = PicoCreate();
 	int rz = 0;
 	const char* S = argv[1];
-	if (!S) S = "4";
+	if (!S) S = "1";
 	if (strcmp(S, "1")==0)
-		rz = TestIntense(C);
+		rz = TestFork(C);
 	 else if (strcmp(S, "2")==0)
 		rz = TestPair(C);
 	 else if (strcmp(S, "3")==0)

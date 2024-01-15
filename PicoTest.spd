@@ -1,0 +1,16 @@
+#!/usr/local/bin/spd
+
+// This is a pico test written in Speedie, available at:
+http://github.com/gamblevore/speedie
+// You don't need this to use Pico. It's just an example of pico
+// in use, in other languages.
+
+main
+	|| p = pico().fork  #require
+	if (p.isparent)
+		p <~ "hello, hello" 
+		p.SleepForSend 
+	  else
+		"Child received: ${p.get(1).uppercase}"
+		
+
