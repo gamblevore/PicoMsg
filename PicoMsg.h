@@ -57,6 +57,7 @@ typedef bool (*PicoThreadFn)(PicoComms* M, void* self, const char** Args);
 	#include <deque>
 	#include <arpa/inet.h>
 	#include <atomic>
+	#include <execinfo.h>
 
 
 struct PicoTrousers { // only one person can wear them at a time.
@@ -95,7 +96,7 @@ static void pico_sleep (float S) {
 	nanosleep(&ts, 0);
 }
 
-extern "C" bool pico_dup2(int from, int to) { // so this kinda does what dup2 should do.
+extern "C" bool PicoDup2(int from, int to) { // so this kinda does what dup2 should do.
 	while (from > 0 and dup2(from, to) == -1) {
 		int err = errno;
 		if (err != EINTR and err != EBUSY)	
@@ -104,7 +105,7 @@ extern "C" bool pico_dup2(int from, int to) { // so this kinda does what dup2 sh
 	return true;
 }
 
-extern "C" int pico_dup(int from) { // this is what dup should do.
+extern "C" int PicoDup(int from) { // this is what dup should do.
 	int to = -1;
 	while ((to = dup(from)) == -1) {
 		int err = errno;
@@ -114,6 +115,7 @@ extern "C" int pico_dup(int from) { // this is what dup should do.
 	return to;
 }
 
+extern "C" const char** PicoBackTrace(void** space, int* size);
 
 
 PicoTrousers PicoCommsLocker;
@@ -166,7 +168,7 @@ static	std::atomic_int		pico_thread_count;
 static	int					pico_desired_thread_count = 1;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 bool						pico_start ();
-static thread_local PicoComms* pico_thread_parent;
+//static thread_local PicoComms* pico_thread_parent;
 
 struct PicoBuff {
 	const char*			Name;
@@ -303,10 +305,8 @@ struct PicoComms : PicoCommsBase {
 	
 	static void* pico_thread_wrapper (void* Args) {
 		PicoThreadData* D = (PicoThreadData*)Args;
-		pico_thread_parent = D->C;
 		(D->fn)(D->C, D->Self, D->Args);
 		(D->C)->Destroy();
-		pico_thread_parent = 0;
 		free(D);
 		return 0;
 	}
@@ -326,7 +326,7 @@ struct PicoComms : PicoCommsBase {
 	bool InitThread (int Noise, void* Self, PicoThreadFn fn, const char** Args) {
 		if (!alloc_buffs()) return false;
 		PicoComms* C = new PicoComms(Noise, false, 1<<Conf.Bits);
-		Sending->RefCount++;     Reading->RefCount++;  Socket = -1;   
+		Sending->RefCount++;     Reading->RefCount++;  Socket = -1; 
 		C->Sending = Reading; C->Reading = Sending; C->Socket = -1;
 		
 		add_sub();
@@ -349,7 +349,7 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	bool InitExec (int Sock) {
-		int NewSock = pico_dup(Sock); // free up the number. In case we wanna exec all over again.
+		int NewSock = PicoDup(Sock); // free up the number. In case we wanna exec all over again.
 		close(Sock);
 		return InitSocket(NewSock); 
 	}
@@ -366,11 +366,10 @@ struct PicoComms : PicoCommsBase {
 		if (!IsParent) {
 			pico_thread_count = 0; // Unix doesn't let us keep threads.
 			if (WillExec) {
-				pico_dup2(S, PicoParentSocketNum);
+				PicoDup2(S, PicoParentSocketNum);
 				close(S); S = PicoParentSocketNum;
 				return pid;
 			}
-			pico_thread_parent = this; // forking clears parent threads anyhow
 		} 
 
 		add_conn(S);
@@ -430,6 +429,14 @@ struct PicoComms : PicoCommsBase {
 		return nullptr;
 	}
 	
+	void PrintStack () {
+		void* arr[32] = {};
+		int size = 32;
+		auto S = PicoBackTrace(arr, &size);
+		for (int i = 0; i < size; i++)
+			puts(S[i]);
+	}
+	
 	void AskClose () {
 		if (HalfClosed>=3) return;
 
@@ -470,10 +477,10 @@ struct PicoComms : PicoCommsBase {
 	
 	bool can_send () {
 		int Remain = Sending->Length();
-		return !(HalfClosed&2) and Remain and !Status;
+		return !(HalfClosed&2) and Remain and !Status and Socket > 0;
 	}
 	
-	void do_sending () {
+	void do_sending () { 
 		if (!can_send() or !Sending->WorkerThread.enter()) return;
 		
 		while ( auto Msg = Sending->AskUsed() ) { // send(MSG_DONTWAIT) does nothing on OSX. but we set non-blocking anyhow.
@@ -491,7 +498,7 @@ struct PicoComms : PicoCommsBase {
 		if (!TheQueue.empty()) return true;
 		if (!T) return false;
 		if (T < 0) T = Conf.SendTimeOut;
-		T = std::min(T, 54321000.0f); // 1.5 years?
+		T = std::min(T, 543210000.0f); // 17 years?
 		PicoDate Final = PicoGetDate() + (PicoDate)(T*65536.0f);
 		timespec ts = {0, 1000000}; int n = T*16000;
 		for ( int i = 0;  i < n and !(HalfClosed&1);   i++) {
@@ -585,6 +592,8 @@ struct PicoComms : PicoCommsBase {
 				SayEvent("ClosedGracefully");
 			} else {
 				SayEvent(pico_fail_actions[Action], strerror(err));
+				if (err == EBADF)
+					SayEvent("Socket", "", Socket);
 			}
 		}
 		Status = err;
@@ -728,7 +737,7 @@ extern "C" bool PicoIsParent (PicoComms* M) _pico_code_ (
 )
 
 
-extern "C" bool PicoHasParent () _pico_code_ (
+extern "C" bool PicoHasParentSocket () _pico_code_ (
 	return !(fcntl(PicoParentSocketNum, F_GETFL) == -1 and errno == EBADF);
 )
 
@@ -737,9 +746,10 @@ extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
 	return !pico_list.Next or pico_start();
 )
 
-extern "C" PicoComms* PicoParent () _pico_code_ (
-	return pico_thread_parent;
-)
 
+extern "C" const char** PicoBackTrace(void** space, int* size) _pico_code_ (
+    *size = backtrace( space, *size );
+    return (const char**)backtrace_symbols( space, *size );
+)
 
 #endif

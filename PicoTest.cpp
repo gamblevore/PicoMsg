@@ -244,8 +244,6 @@ int TestExec (PicoComms* C, const char* self) {
 
 
 int TestExec2 (PicoComms* C) {
-	if (!PicoHasParent())
-		return -!PicoSay(C, "Has No Pico Parent!");
 	if (!PicoCompleteExec(C)) return -1;
 	while (auto M = PicoGet(C, 1)) {
 		if (!M)
@@ -260,19 +258,19 @@ int TestExec2 (PicoComms* C) {
 
 
 int main (int argc, const char * argv[]) {
-	auto C = PicoCreate();
 	int rz = 0;
 	const char* S = argv[1];
 	if (!S) S = "1";
+	auto C = PicoCreate();
 	if (strcmp(S, "1")==0)
 		rz = TestFork(C);
-	 else if (strcmp(S, "2")==0)
+	  else if (strcmp(S, "2")==0)
 		rz = TestPair(C);
-	 else if (strcmp(S, "3")==0)
+	  else if (strcmp(S, "3")==0)
 		rz = TestExec(C, argv[0]);
-	 else if (strcmp(S, "exec")==0)
-		rz = TestExec2(C);
-	 else
+	  else if (strcmp(S, "exec")==0)
+		return TestExec2(C);
+	  else
 		rz = TestThread(C);
 	PicoDestroy(C);
 	return rz;
