@@ -35,7 +35,7 @@ typedef int64_t	PicoDate;  // 16 bits for small stuff
 struct			PicoComms;
 struct			PicoMessage { int Length;  char* Data;  operator bool () {return Data;}; };
 
-struct 			PicoConfig  { const char* Name;  PicoDate LastRead;  int Noise;  float SendTimeOut;  int SendFailed;  int ReadFailed;  int QueueBytesRemaining;  int Bits; };
+struct 			PicoConfig  { const char* Name;  PicoDate LastRead;  PicoDate LastSend;  int Noise;  float SendTimeOut;  int SendFailCount;  int ReadFailCount;  int QueueBytesRemaining;  int Bits; };
 
 typedef bool (*PicoThreadFn)(PicoComms* M, void* self, const char** Args);
 
@@ -114,8 +114,6 @@ extern "C" int PicoDup(int from) { // this is what dup should do.
 	}
 	return to;
 }
-
-extern "C" const char** PicoBackTrace(void** space, int* size);
 
 
 PicoTrousers PicoCommsLocker;
@@ -386,7 +384,7 @@ struct PicoComms : PicoCommsBase {
 		if (n+4 > Sending->Size)
 			return SayEvent("CantSend: Message too large!");
 		if (Policy == PicoSendGiveUp)
-			return (!Conf.SendFailed++) and SayEvent("CantSend: BufferFull");
+			return (!Conf.SendFailCount++) and SayEvent("CantSend: BufferFull");
 		
 		PicoDate Final = PicoGetDate() + (PicoDate)(Conf.SendTimeOut*65536.0f);
 		while (PicoGetDate() < Final) {
@@ -395,7 +393,7 @@ struct PicoComms : PicoCommsBase {
 			if (queue_sub(msg, n)) return true;
 		}
 		
-		return (!Conf.SendFailed++) and SayEvent("CantSend: TimedOut");
+		return (!Conf.SendFailCount++) and SayEvent("CantSend: TimedOut");
 	}
 	
 	PicoMessage Get (float T = 0.0) {
@@ -429,14 +427,6 @@ struct PicoComms : PicoCommsBase {
 		return nullptr;
 	}
 	
-	void PrintStack () {
-		void* arr[32] = {};
-		int size = 32;
-		auto S = PicoBackTrace(arr, &size);
-		for (int i = 0; i < size; i++)
-			puts(S[i]);
-	}
-	
 	void AskClose () {
 		if (HalfClosed>=3) return;
 
@@ -453,7 +443,9 @@ struct PicoComms : PicoCommsBase {
 //// INTERNALS ////
 	
 	bool queue_sub (const char* msg, int n) {
-		return Sending and Sending->AppendMsg(msg, n); // in case I wanna put debug tests here.
+		if (!Sending or !Sending->AppendMsg(msg, n)) return false;
+		if (Socket == -1) Conf.LastSend = PicoDate();
+		return true;
 	}
 
 	void do_reading () {
@@ -487,6 +479,7 @@ struct PicoComms : PicoCommsBase {
 			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
   			if (Amount > 0) {
 				Sending->lost(Amount);
+				Conf.LastSend = PicoGetDate();
 				if (CanSayDebug()) Say("|send|", "", Amount);
 			} else if (!io_pass(Amount, 2))
 				break;
@@ -523,7 +516,7 @@ struct PicoComms : PicoCommsBase {
 		if (Reading->Length() < L) return false;
 		int QS = L + sizeof(PicoMessage)*2;
 		if (Conf.QueueBytesRemaining < QS)
-			return (!Conf.ReadFailed++) and SayEvent("CantRead: BufferFull");
+			return (!Conf.ReadFailCount++) and SayEvent("CantRead: BufferFull");
 		
 		if (char* Data = (char*)malloc(L); Data) {
 			Reading->Get(Data, L);
@@ -656,7 +649,6 @@ static void* pico_worker (void* Dummy) {
 
 bool pico_start () {
 	pthread_t T = 0;   ;;;/*_*/;;;   // creeping downwards!!
-
 	for (int i = pico_thread_count; i < pico_desired_thread_count; i++)
 		if (pthread_create(&T, nullptr, (void*(*)(void*))pico_worker, nullptr) or pthread_detach(T))
 			return false;
@@ -712,6 +704,7 @@ extern "C" PicoMessage PicoGet (PicoComms* M, float Time=0) _pico_code_ (
 
 
 /// **Utilities** ///
+
 extern "C" void PicoClose (PicoComms* M) _pico_code_ (
 	if (M) M->AskClose();
 )
@@ -736,7 +729,6 @@ extern "C" bool PicoIsParent (PicoComms* M) _pico_code_ (
 	return M->IsParent;
 )
 
-
 extern "C" bool PicoHasParentSocket () _pico_code_ (
 	return !(fcntl(PicoParentSocketNum, F_GETFL) == -1 and errno == EBADF);
 )
@@ -744,12 +736,6 @@ extern "C" bool PicoHasParentSocket () _pico_code_ (
 extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
 	pico_desired_thread_count = C;
 	return !pico_list.Next or pico_start();
-)
-
-
-extern "C" const char** PicoBackTrace(void** space, int* size) _pico_code_ (
-    *size = backtrace( space, *size );
-    return (const char**)backtrace_symbols( space, *size );
 )
 
 #endif
