@@ -145,7 +145,7 @@ struct PicoCommsBase {
 			N->Prev = P;
 		P->Next = N;
 		Next = 0;
-		Prev = 0;
+		Prev = this;
 		PicoCommsLocker.unlock();
 	}
 	
@@ -266,8 +266,8 @@ struct PicoBuff {
 
 struct PicoComms : PicoCommsBase {
 	int							Socket;
-	unsigned char				Err;
-	char						HalfClosed;
+	unsigned char				Status;
+	unsigned char				HalfClosed;
 	bool						IsParent;
 	PicoTrousers				QueueLocker;
 	int							LengthBuff;
@@ -276,7 +276,7 @@ struct PicoComms : PicoCommsBase {
 	PicoBuff*					Sending;
 	
 	PicoComms (int noise, bool isparent, int Size) {
-		RefCount = 1; Socket = 0; Err = 0; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0;
+		RefCount = 1; Socket = 0; Status = -1; IsParent = isparent; HalfClosed = 0; LengthBuff = 0; Sending = 0; Reading = 0;
 		memset(&Conf, 0, sizeof(PicoConfig)); 
 		Conf.Noise = noise;
 		Conf.SendTimeOut = 10.0f;
@@ -297,15 +297,6 @@ struct PicoComms : PicoCommsBase {
 		if (Sending) Reading->Decr();
 	}
 
-	PicoComms* InitPair (int Noise) {
-		int Socks[2] = {};
-		if (!get_pair_of(Socks)) return nullptr;
-		PicoComms* Rz = new PicoComms(Noise, false, 1<<Conf.Bits);
-		add_conn(Socks[0]);
-		Rz->add_conn(Socks[1]);
-		return Rz;
-	}
-
 	struct PicoThreadData {
 		PicoComms* C; PicoThreadFn fn; void* Self; const char** Args;
 	};
@@ -315,6 +306,7 @@ struct PicoComms : PicoCommsBase {
 		pico_thread_parent = D->C;
 		(D->fn)(D->C, D->Self, D->Args);
 		(D->C)->Destroy();
+		pico_thread_parent = 0;
 		free(D);
 		return 0;
 	}
@@ -326,6 +318,7 @@ struct PicoComms : PicoCommsBase {
 		if (!pthread_create(&T, nullptr, pico_thread_wrapper, D) and !pthread_detach(T))
 			return true;
 		C->Say("ThreadFailed");
+		C->Destroy();
 		free(D);
 		return false;
 	}
@@ -341,6 +334,15 @@ struct PicoComms : PicoCommsBase {
 		return thread_run(C, fn, Self, Args);
 	}
 	
+	PicoComms* InitPair (int Noise) {
+		int Socks[2] = {};
+		if (!get_pair_of(Socks)) return nullptr;
+		PicoComms* Rz = new PicoComms(Noise, false, 1<<Conf.Bits);
+		add_conn(Socks[0]);
+		Rz->add_conn(Socks[1]);
+		return Rz;
+	}
+
 	bool InitSocket (int Sock) {
 		IsParent = false;
 		return (Sock > 0 or failed(EBADF)) and add_conn(Sock);
@@ -430,7 +432,7 @@ struct PicoComms : PicoCommsBase {
 	void AskClose () {
 		if (HalfClosed>=3) return;
 
-		if (!Err) Err = ENOTCONN;
+		if (!Status) Status = ENOTCONN;
 		report_closed_buffers();
 		SayEvent("Disconnecting");
 	}
@@ -551,12 +553,13 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	bool add_sub () {
+		Status = 0;
 		pico_list.AddComm(this);
 		return !SayEvent("Started");
 	}  ;;;/*_*/;;;   // creeping upwards!!
 	
 	void report_closed_buffers () {
-		if (CanSayDebug() and HalfClosed != -1 ) {
+		if (CanSayDebug() and HalfClosed != 255 ) {
 			int SL = Sending->Length();
 			int RL = Reading->Length();
 			if (SL) Say("Sending", "Still Contains", SL);
@@ -564,7 +567,7 @@ struct PicoComms : PicoCommsBase {
 			if (RL) Say("Reading", "Still Contains", RL);
 			Say("Read", "", Reading->Head);
 		}
-		HalfClosed = -1;
+		HalfClosed = 255;
 	}
 
 	void decr () {
@@ -573,7 +576,7 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	void* failed (int err=errno, int Action=0) {
-		if (!Err) {
+		if (!Status or Status == 255) {
 			if (err == EPIPE and HalfClosed) {
 				err = ENOTCONN;
 				SayEvent("ClosedGracefully");
@@ -581,7 +584,7 @@ struct PicoComms : PicoCommsBase {
 				SayEvent(pico_fail_actions[Action], strerror(err));
 			}
 		}
-		Err = err;
+		Status = err;
 		HalfClosed = 3;
 		return nullptr;
 	}
@@ -692,33 +695,29 @@ extern "C" bool PicoSendStr (PicoComms* M, const char* Msg, bool Policy=PicoSend
 )
 
 extern "C" PicoMessage PicoGet (PicoComms* M, float Time=0) _pico_code_ (
-	return M->Get(Time);
+	if (M) return M->Get(Time); return {};
 )
 
 
 /// **Utilities** ///
 extern "C" void PicoClose (PicoComms* M) _pico_code_ (
-	M->AskClose();
+	if (M) M->AskClose();
 )
 
 extern "C" void* PicoSay (PicoComms* M, const char* A, const char* B="", int Iter=0) _pico_code_ (
 	return M->Say(A, B, Iter);
 )
 
-extern "C" int PicoErr (PicoComms* M) _pico_code_ (
-	return M?M->Err:-1;
+extern "C" int PicoError (PicoComms* M) _pico_code_ (
+	return M?M->Status:-1;
 )
 
 extern "C" PicoConfig* PicoConf (PicoComms* M) _pico_code_ (
-	return &M->Conf;
+	return M?&M->Conf:0;
 )
 
 extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
-	return M->StillSending();
-)
-
-extern "C" int PicoSocket (PicoComms* M) _pico_code_ (
-	return M?M->Socket:0;
+	return M?M->StillSending():false;
 )
 
 bool PicoHasParent () _pico_code_ (
