@@ -163,7 +163,7 @@ struct PicoCommsBase {
 static	PicoCommsBase		pico_list;
 static	PicoDate			pico_last_activity;
 static	std::atomic_int		pico_thread_count;
-static	int					pico_desired_thread_count = 2;
+static	int					pico_desired_thread_count = 1;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 bool						pico_start ();
 static thread_local PicoComms* pico_thread_parent;
@@ -294,7 +294,7 @@ struct PicoComms : PicoCommsBase {
 		for (auto& M:TheQueue)
 			free(M.Data);
 		if (Sending) Sending->Decr();
-		if (Sending) Reading->Decr();
+		if (Reading) Reading->Decr();
 	}
 
 	struct PicoThreadData {
@@ -370,6 +370,7 @@ struct PicoComms : PicoCommsBase {
 				close(S); S = PicoParentSocketNum;
 				return pid;
 			}
+			pico_thread_parent = this; // forking clears parent threads anyhow
 		} 
 
 		add_conn(S);
@@ -467,11 +468,13 @@ struct PicoComms : PicoCommsBase {
 		Reading->WorkerThread.unlock();
 	}
 	
-	void do_sending () {
+	bool can_send () {
 		int Remain = Sending->Length();
-		if (HalfClosed&2 or !Remain or Socket < 0) return;
-		
-		if (!Sending->WorkerThread.enter()) return;
+		return !(HalfClosed&2) and Remain and !Status;
+	}
+	
+	void do_sending () {
+		if (!can_send() or !Sending->WorkerThread.enter()) return;
 		
 		while ( auto Msg = Sending->AskUsed() ) { // send(MSG_DONTWAIT) does nothing on OSX. but we set non-blocking anyhow.
 			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
@@ -720,16 +723,21 @@ extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
 	return M?M->StillSending():false;
 )
 
-bool PicoHasParent () _pico_code_ (
+extern "C" bool PicoIsParent (PicoComms* M) _pico_code_ (
+	return M->IsParent;
+)
+
+
+extern "C" bool PicoHasParent () _pico_code_ (
 	return !(fcntl(PicoParentSocketNum, F_GETFL) == -1 and errno == EBADF);
 )
 
-bool PicoDesiredThreadCount (int C) _pico_code_ (
+extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
 	pico_desired_thread_count = C;
 	return !pico_list.Next or pico_start();
 )
 
-PicoComms* PicoParent () _pico_code_ (
+extern "C" PicoComms* PicoParent () _pico_code_ (
 	return pico_thread_parent;
 )
 
