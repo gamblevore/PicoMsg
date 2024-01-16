@@ -25,9 +25,6 @@
 #ifndef PicoDefaultInitSize
 	#define PicoDefaultInitSize (1024*1024)
 #endif
-#ifndef PicoParentSocketNum
-	#define PicoParentSocketNum (987)
-#endif
 #include <stdint.h> // for picodate
 
 typedef int64_t	PicoDate;  // 16 bits for small stuff
@@ -58,6 +55,7 @@ typedef bool (*PicoThreadFn)(PicoComms* M, void* self, const char** Args);
 	#include <arpa/inet.h>
 	#include <atomic>
 	#include <execinfo.h>
+	#include <charconv>
 
 
 struct PicoTrousers { // only one person can wear them at a time.
@@ -94,25 +92,6 @@ static void pico_sleep (float S) {
 	S = std::clamp(S, 0.0001f, 0.9999f);
 	timespec ts = {0, (int)(S*1000000000.0)};
 	nanosleep(&ts, 0);
-}
-
-extern "C" bool PicoDup2(int from, int to) { // so this kinda does what dup2 should do.
-	while (from > 0 and dup2(from, to) == -1) {
-		int err = errno;
-		if (err != EINTR and err != EBUSY)	
-			return false;
-	}
-	return true;
-}
-
-extern "C" int PicoDup(int from) { // this is what dup should do.
-	int to = -1;
-	while ((to = dup(from)) == -1) {
-		int err = errno;
-		if (err != EINTR and err != EBUSY)	
-			break;
-	}
-	return to;
 }
 
 
@@ -346,10 +325,22 @@ struct PicoComms : PicoCommsBase {
 		return (Sock > 0 or failed(EBADF)) and add_conn(Sock);
 	}
 
-	bool InitExec (int Sock) {
-		int NewSock = PicoDup(Sock); // free up the number. In case we wanna exec all over again.
-		close(Sock);
-		return InitSocket(NewSock); 
+	bool InitExec () {
+		return InitSocket(FindSock()); 
+	}
+	
+	int FindSock () {
+		const char* x = getenv("__PicoSock__");
+		if (!x) return -1;
+		unsetenv("__PicoSock__");
+		return std::atoi(x);
+	}
+	
+	pid_t StealSock (int Succ, pid_t pid) {
+		char Data[8];
+		*std::to_chars(Data, Data+sizeof(Data), Succ).ptr = 0;
+		setenv("__PicoSock__", Data, 1);
+		return pid;
 	}
 
 	pid_t InitFork (bool WillExec) {
@@ -363,11 +354,8 @@ struct PicoComms : PicoCommsBase {
 		int S = Socks[IsParent];
 		if (!IsParent) {
 			pico_thread_count = 0; // Unix doesn't let us keep threads.
-			if (WillExec) {
-				PicoDup2(S, PicoParentSocketNum);
-				close(S); S = PicoParentSocketNum;
-				return pid;
-			}
+			if (WillExec)
+				return StealSock(S, pid);
 		} 
 
 		add_conn(S);
@@ -673,7 +661,7 @@ extern "C" PicoComms* PicoStartChild (PicoComms* M) _pico_code_ (
 )
 
 extern "C" bool PicoCompleteExec (PicoComms* M) _pico_code_ (
-	return M->InitExec(PicoParentSocketNum);
+	return M->InitExec();
 )
 
 extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj=0, const char** Args=0) _pico_code_ (
@@ -730,7 +718,7 @@ extern "C" bool PicoIsParent (PicoComms* M) _pico_code_ (
 )
 
 extern "C" bool PicoHasParentSocket () _pico_code_ (
-	return !(fcntl(PicoParentSocketNum, F_GETFL) == -1 and errno == EBADF);
+	return getenv("__PicoSock__");
 )
 
 extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
