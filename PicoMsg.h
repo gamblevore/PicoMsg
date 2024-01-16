@@ -56,6 +56,7 @@ typedef bool (*PicoThreadFn)(PicoComms* M, void* self, const char** Args);
 	#include <atomic>
 	#include <execinfo.h>
 	#include <charconv>
+	#include <signal.h>
 
 
 struct PicoTrousers { // only one person can wear them at a time.
@@ -144,7 +145,8 @@ static	PicoDate			pico_last_activity;
 static	std::atomic_int		pico_thread_count;
 static	int					pico_desired_thread_count = 1;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
-bool						pico_start ();
+static  bool				pico_suicide;
+extern "C" bool PicoStart (int Suicide=0);
 //static thread_local PicoComms* pico_thread_parent;
 
 struct PicoBuff {
@@ -529,7 +531,7 @@ struct PicoComms : PicoCommsBase {
 		if (!Reading)
 			Reading = PicoBuff::New(Conf.Bits, "Read", this);
 
-		if (Reading and Sending and pico_start()) return true;
+		if (Reading and Sending and PicoStart()) return true;
 		
 		return really_close() or failed(ENOBUFS);
 	}
@@ -620,6 +622,9 @@ static void pico_work_comms () {
 	auto M = pico_list.NextComm();
 	while (M)
 		M = M->io();
+
+	if (pico_suicide and getppid() <= 1)
+		kill(0, SIGSEGV);
 	
 	float S = (PicoGetDate() - pico_last_activity) * 0.000015258789f; // seconds
 	S = std::clamp(S, 0.03f, 0.9999f);
@@ -634,17 +639,6 @@ static void* pico_worker (void* Dummy) {
 	while (true) pico_work_comms();
 	pico_thread_count--; // nice
 }
-
-bool pico_start () {
-	pthread_t T = 0;   ;;;/*_*/;;;   // creeping downwards!!
-	for (int i = pico_thread_count; i < pico_desired_thread_count; i++)
-		if (pthread_create(&T, nullptr, (void*(*)(void*))pico_worker, nullptr) or pthread_detach(T))
-			return false;
-
-	return true;
-}    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // more spiders
-
-
 
 #endif
 
@@ -723,7 +717,18 @@ extern "C" bool PicoHasParentSocket () _pico_code_ (
 
 extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
 	pico_desired_thread_count = C;
-	return !pico_list.Next or pico_start();
+	return !pico_list.Next or PicoStart();
 )
+
+extern "C" bool PicoStart (int Suicide) _pico_code_ (
+	if (Suicide)
+		pico_suicide = Suicide > 0;
+	pthread_t T = 0;   ;;;/*_*/;;;   // creeping downwards!!
+	for (int i = pico_thread_count; i < pico_desired_thread_count; i++)
+		if (pthread_create(&T, nullptr, (void*(*)(void*))pico_worker, nullptr) or pthread_detach(T))
+			return false;
+
+	return true;
+)    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // the final spiders
 
 #endif
