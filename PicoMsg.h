@@ -32,7 +32,17 @@ typedef int64_t	PicoDate;  // 16 bits for small stuff
 struct			PicoComms;
 struct			PicoMessage { int Length;  char* Data;  operator bool () {return Data;}; };
 
-struct 			PicoConfig  { const char* Name;  PicoDate LastRead;  PicoDate LastSend;  int Noise;  float SendTimeOut;  int SendFailCount;  int ReadFailCount;  int QueueBytesRemaining;  int Bits; };
+struct 			PicoConfig  {
+	const char* Name;			/// Used for reporting events to stdout.
+	PicoDate	LastRead;		/// The date of the last Read. This is a signed 64-bit number. The lower 16-bits used for sub-second resolution, and the upper 47-bits are for seconds. 1 bit used for the sign.
+	PicoDate	LastSend;		/// The date of the last send.
+	int 		Noise;			/// How much printing to stdout that PicoMsg does. Anything from PicoSilent to PicoNoiseAll.
+	float		SendTimeOut;	/// The number of seconds before a send will timeout (if the send is not instant)
+	int			SendFailCount;	/// How many time sending failed.
+	int			ReadFailCount;	/// How many times reading failed.
+	int			QueueSize;		/// The allowed combined-size for unread messages. There is no hard limit. 8MB default.
+	int			Bits;			// The buffer-size in 1<<Bits. must be set before calling `PicoStart...()`
+};
 
 typedef bool (*PicoThreadFn)(PicoComms* M, void* self, const char** Args);
 
@@ -266,7 +276,7 @@ struct PicoComms : PicoCommsBase {
 		if (B < 10) B = 10;
 		B += (1<<B < Size);
 		Conf.Bits = B;
-		Conf.QueueBytesRemaining = 1<<(B+3);
+		Conf.QueueSize = 1<<(B+3);
 	}
 
 	~PicoComms () { 
@@ -347,9 +357,9 @@ struct PicoComms : PicoCommsBase {
 
 	pid_t InitFork (bool WillExec) {
 		int Socks[2] = {};
-		if (!get_pair_of(Socks)) return -errno;
+		if (!get_pair_of(Socks)) return -1;
 		pid_t pid = fork();
-		if (pid < 0) return -errno;
+		if (pid < 0) return -1;
 
 		IsParent = pid!=0; // 🕷️_🕷️
 		close(Socks[!IsParent]);
@@ -393,7 +403,7 @@ struct PicoComms : PicoCommsBase {
 		PicoMessage M = TheQueue.front();
 		TheQueue.pop_front();
 		QueueLocker.unlock();
-		Conf.QueueBytesRemaining  +=  M.Length + sizeof(PicoMessage)*2;
+		Conf.QueueSize  +=  M.Length + sizeof(PicoMessage)*2;
 		return M;
 	}
 
@@ -505,13 +515,13 @@ struct PicoComms : PicoCommsBase {
 
 		if (Reading->Length() < L) return false;
 		int QS = L + sizeof(PicoMessage)*2;
-		if (Conf.QueueBytesRemaining < QS)
+		if (Conf.QueueSize < QS)
 			return (!Conf.ReadFailCount++) and SayEvent("CantRead: BufferFull");
 		
 		if (char* Data = (char*)malloc(L); Data) {
 			Reading->Get(Data, L);
 			LengthBuff = 0;
-			Conf.QueueBytesRemaining -= QS;
+			Conf.QueueSize -= QS;
 			QueueLocker.lock();
 			TheQueue.push_back({L, Data});
 			QueueLocker.unlock();
@@ -646,10 +656,17 @@ static void* pico_worker (void* Dummy) {
 /// C-API ///
 /// **Initialisation / Destruction** ///
 extern "C" PicoComms* PicoCreate ()  _pico_code_ (
+/// Creates your message-passer.
 	return new PicoComms(PicoNoiseEvents, true, PicoDefaultInitSize);
 )
 
+extern "C" void PicoDestroy (PicoComms* M) _pico_code_ (
+/// Destroys the PicoComms object, and reclaims memory. Also closes the other side.
+	if (M) M->Destroy();
+)
+
 extern "C" PicoComms* PicoStartChild (PicoComms* M) _pico_code_ (
+/// Creates a new thread, using the function "fn", and passes a newly created PicoComms object to your function! Also cleans up the newly created PicoComms when done. Returns `false` if any error occurred. Look at PicoTest.cpp for a good example. :) You can pass two user-defined parameters.
 	return M->InitPair(PicoNoiseEvents);
 )
 
@@ -662,24 +679,27 @@ extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj=0, con
 ) 
 
 extern "C" int PicoStartFork (PicoComms* M, bool WillExec=false) _pico_code_ (
-	return M?M->InitFork(WillExec):fork();
-)
+/// This will fork your app, and then connect the two apps with PicoMsg. Returns the result of `fork()`. So handle it just the same.
+/// Passing true to WillExec, will prepare PicoMsg for a call to any of the `execve()` family. Its kinda complex to explain, so just look at `PicoTest.cpp` for a good example. The child process should call `PicoCompleteExec` to start up the connection.
 
-extern "C" void PicoDestroy (PicoComms* M) _pico_code_ (
-	if (M) M->Destroy();
+	return M?M->InitFork(WillExec):fork();
 )
 
 
 /// **Communications** ///
 extern "C" bool PicoSend (PicoComms* M, PicoMessage Msg, int Policy=PicoSendGiveUp) _pico_code_ (
+/// Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. If `CanWait` is false and there is no buffer space, this function returns `false`. If `CanWait` is true, it will block until the timeout is reached. See the ["configuration"](#Configuration) section about how to change the timeout.
 	return M->QueueSend(Msg.Data, Msg.Length, Policy);
 )
 
 extern "C" bool PicoSendStr (PicoComms* M, const char* Msg, bool Policy=PicoSendGiveUp) _pico_code_ (
+/// Same as `PicoSend`, just a little simpler to use, if you have a c-string.
 	return M->QueueSend(Msg, (int)strlen(Msg)+1, Policy);
 )
 
 extern "C" PicoMessage PicoGet (PicoComms* M, float Time=0) _pico_code_ (
+/// Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
+/// Once it returns a PicoMessage, you must `free()` it's `Data` property, after you are finished with it.
 	if (M) return M->Get(Time); return {};
 )
 
@@ -687,22 +707,28 @@ extern "C" PicoMessage PicoGet (PicoComms* M, float Time=0) _pico_code_ (
 /// **Utilities** ///
 
 extern "C" void PicoClose (PicoComms* M) _pico_code_ (
+/// Closes the comms object. Does not destroy it. Useful if you have many places that might need to close the comms, but only one place that will destroy it. It acceptable to close a comms twice!
 	if (M) M->AskClose();
 )
 
 extern "C" void* PicoSay (PicoComms* M, const char* A, const char* B="", int Iter=0) _pico_code_ (
+/// Prints a string to `stdout`. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name. (`Name` is settable via `PicoConfig`).
 	return M->Say(A, B, Iter);
 )
 
 extern "C" int PicoError (PicoComms* M) _pico_code_ (
+/// Returns an error that forced comms to close. If the comms is still open, the error is 0.
 	return M?M->Status:-1;
 )
 
 extern "C" PicoConfig* PicoConf (PicoComms* M) _pico_code_ (
+/// Gets the config struct. You can configure "noise", "timeout", "name", and the maximum unread-message queue size.
+
 	return M?&M->Conf:0;
 )
 
 extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
+///  Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending.
 	return M?M->StillSending():false;
 )
 
@@ -720,6 +746,8 @@ extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
 )
 
 extern "C" bool PicoStart (int Suicide) _pico_code_ (
+/// Starts the PicoMsg worker threads. The number of threads created is set by the glboal variable `pico_desired_thread_count`. You can pass 1 to `Suicide` param, to make the worker threads kill the app if it's parent dies. Or pass -1 to set it to false even if it was previously set. Passing 0 will leave it unchanged (defaults to not suiciding).
+
 	if (Suicide)
 		pico_suicide = Suicide > 0 and getppid() > 1;
 	pthread_t T = 0;   ;;;/*_*/;;;   // creeping downwards!!
@@ -731,3 +759,4 @@ extern "C" bool PicoStart (int Suicide) _pico_code_ (
 )    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // the final spiders
 
 #endif
+
