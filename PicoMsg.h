@@ -622,8 +622,10 @@ static void pico_work_comms () {
 	while (M)
 		M = M->io();
 
-	if (pico_suicide and getppid() <= 1)
-		kill(0, SIGSEGV);
+	if (pico_suicide and getppid() <= 1) {
+		pico_suicide = false;
+		kill(0, SIGQUIT);
+	}
 	
 	float S = (PicoGetDate() - pico_last_activity) * (0.000015258789f * 0.005f);
 	pico_sleep(std::clamp(S*S, 0.001f, 0.5f));
@@ -719,7 +721,7 @@ extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
 
 extern "C" bool PicoStart (int Suicide) _pico_code_ (
 	if (Suicide)
-		pico_suicide = Suicide > 0;
+		pico_suicide = Suicide > 0 and getppid() > 1;
 	pthread_t T = 0;   ;;;/*_*/;;;   // creeping downwards!!
 	for (int i = pico_thread_count; i < pico_desired_thread_count; i++)
 		if (pthread_create(&T, nullptr, (void*(*)(void*))pico_worker, nullptr) or pthread_detach(T))
