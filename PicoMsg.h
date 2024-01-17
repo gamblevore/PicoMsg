@@ -295,7 +295,7 @@ struct PicoComms : PicoCommsBase {
 	static void* pico_thread_wrapper (void* Args) {
 		PicoThreadData* D = (PicoThreadData*)Args;
 		(D->fn)(D->C, D->Self, D->Args);
-		(D->C)->Destroy();
+		(D->C)->Destroy("ThreadCompleted");
 		free(D);
 		return 0;
 	}
@@ -306,8 +306,7 @@ struct PicoComms : PicoCommsBase {
 		D->C = C; D->fn = fn; D->Self = Self; D->Args = Args;
 		if (!pthread_create(&T, nullptr, pico_thread_wrapper, D) and !pthread_detach(T))
 			return true;
-		C->Say("ThreadFailed");
-		C->Destroy();
+		C->Destroy("ThreadFailed");
 		free(D);
 		return false;
 	}
@@ -427,16 +426,16 @@ struct PicoComms : PicoCommsBase {
 		return nullptr;
 	}
 	
-	void AskClose () {
+	void AskClose (const char* Why) {
 		if (HalfClosed>=3) return;
 
 		if (!Status) Status = ENOTCONN;
 		report_closed_buffers();
-		SayEvent("Disconnecting");
+		SayEvent("Disconnecting", Why);
 	}
 	
-	void Destroy () {
-		AskClose(); decr();
+	void Destroy (const char* Why) {
+		AskClose(Why); decr();
 	}
 
 
@@ -552,13 +551,13 @@ struct PicoComms : PicoCommsBase {
 		if (!alloc_buffs()) return false;
 		Socket = Sock;
 		fcntl(Socket, F_SETFL, FL | O_NONBLOCK);
-		return add_sub();
+		add_sub(); return true;
 	}
 
-	bool add_sub () {
+	void add_sub () {
 		Status = 0;
 		pico_list.AddComm(this);
-		return !SayEvent("Started");
+		if (CanSayDebug()) Say("Started");
 	}  ;;;/*_*/;;;   // creeping upwards!!
 	
 	void report_closed_buffers () {
@@ -660,9 +659,9 @@ extern "C" PicoComms* PicoCreate ()  _pico_code_ (
 	return new PicoComms(PicoNoiseEvents, true, PicoDefaultInitSize);
 )
 
-extern "C" void PicoDestroy (PicoComms* M) _pico_code_ (
+extern "C" void PicoDestroy (PicoComms* M, const char* Why="Destroyed") _pico_code_ (
 /// Destroys the PicoComms object, and reclaims memory. Also closes the other side.
-	if (M) M->Destroy();
+	if (M) M->Destroy(Why);
 )
 
 extern "C" PicoComms* PicoStartChild (PicoComms* M) _pico_code_ (
@@ -708,9 +707,9 @@ extern "C" PicoMessage PicoGet (PicoComms* M, float Time=0) _pico_code_ (
 
 /// **Utilities** ///
 
-extern "C" void PicoClose (PicoComms* M) _pico_code_ (
+extern "C" void PicoClose (PicoComms* M, const char* Why) _pico_code_ (
 /// Closes the comms object. Does not destroy it. Useful if you have many places that might need to close the comms, but only one place that will destroy it. It acceptable to close a comms twice!
-	if (M) M->AskClose();
+	if (M) M->AskClose(Why);
 )
 
 extern "C" void* PicoSay (PicoComms* M, const char* A, const char* B="", int Iter=0) _pico_code_ (
