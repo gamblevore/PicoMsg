@@ -617,7 +617,6 @@ struct PicoComms : PicoCommsBase {
 };
 
 
-
 static void pico_work_comms () {
 	auto M = pico_list.NextComm();
 	while (M)
@@ -626,10 +625,8 @@ static void pico_work_comms () {
 	if (pico_suicide and getppid() <= 1)
 		kill(0, SIGSEGV);
 	
-	float S = (PicoGetDate() - pico_last_activity) * 0.000015258789f; // seconds
-	S = std::clamp(S, 0.03f, 0.9999f);
-	S = S*S;
-	pico_sleep(S);
+	float S = (PicoGetDate() - pico_last_activity) * (0.000015258789f * 0.005f);
+	pico_sleep(std::clamp(S*S, 0.001f, 0.5f));
 }
 
 
