@@ -280,7 +280,7 @@ struct PicoComms : PicoCommsBase {
 	}
 
 	~PicoComms () { 
-		SayEvent("Deleted");
+		if (CanSayDebug()) Say("Deleted");
 		really_close();
 		for (auto& M:TheQueue)
 			free(M.Data);
