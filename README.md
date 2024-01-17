@@ -30,84 +30,23 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 # API
 
-### Initialisation / Destruction
+The API is mostly described in PicoMsg.h itself. However, a quick explanation is here:
 
-Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThread` or `PicoStartFork`. Call `PicoDestroy` when you are finsished.
+Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThread` or `PicoStartFork` on your `PicoComms*`. Call `PicoDestroy` when you are finished.
 
-**`PicoComms* PicoCreate ()`**   :   Creates your message-passer.
+To send, use PicoSend (sends blocks of data), or PicoSendStr (sends c-strings).
 
-**`void PicoDestroy (PicoComms* M)`**   :   Destroys the PicoComms object, and reclaims memory. Also closes the other side.
-
-**`bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj1 = nullptr, const char** Args = nullptr)`**   :   Creates a new thread, using the function "fn", and passes a newly created PicoComms object to your function! Also cleans up the newly created PicoComms when done. Returns `false` if any error occurred. Look at PicoTest.cpp for a good example. :) You can pass two user-defined parameters.
-
-**`pid_t PicoStartFork (PicoComms* M, bool WillExec=false)`**   :   This will fork your app, and then connect the two apps with PicoMsg. Returns the result from `fork()`. So -1 means an error occurred, just like it does in `fork()`.
-
-Passing true to WillExec, will prepare PicoMsg for a call to any of the `execve()` family. Its kinda complex to explain, so just look at PicoTest.cpp for a good example. The child process should call `PicoCompleteExec` to start up the connection.
-
-
-### Communication
-
-**`bool PicoSend (PicoComms* M, PicoMessage Msg, bool CanWait=false)`**   :   Sends the message. The data is copied to internal buffers so you do not need to hold onto it after send. If `CanWait` is false and there is no buffer space, this function returns `false`. If `CanWait` is true, it will block until the timeout is reached. See the ["configuration"](#Configuration) section about how to change the timeout.
-
-**`bool PicoSend (PicoComms* M, const char* Str, bool CanWait=false)`**   :   Same as above, just a little simpler to use, if you have a c-string.
-
-**`PicoMessage PicoGet (PicoComms* M, float TimeOut=0)`**   :   Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
-
-    struct PicoMessage {
-        int   Length;
-        char* Data;
-    };
-
-This is what you get back. This gives you the `Length` of the data, and the `Data` itself. `Data` from `PicoGet`, is allocated with `malloc` and you must to `free` it after you are finished with it.
+To receive, use PicoGet. Both calls are non-blocking by default, but you can ask to block within the function call itself.
 
 If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
 
+PicoMsg also has some util functions. These functions are not always needed, but available in case you need them.
 
-### Utils
+`PicoError` is very nice, because it returns an error that forced comms to close. If the comms is still open, the error is 0. The errors are from `errno`, so you can use `strerror` on them. For example, a PicoComms that was newly created, with have an error of `ENOTCONN`, meaning that it is not (yet) connected :) This error will go to 0, once you connect the comms.
 
-These functions are not always needed, but available in case you need them.
+Other useful utils are: `PicoClose` (in case you want to close the comms from multiple points in your app), `PicoStillSending` (in case you want to give your app a chance to still send more data.), `PicoSay` is very informative and can help debug things.
 
-**`int PicoErr (PicoComms* M);`**   :   Returns an error that forced comms to close. If the comms is still open, the error is 0.
-
-**`void PicoClose (PicoComms* M)`**   :   Closes the comms object. Does not destroy it. Useful if you have many places that might need to close the comms, but only one place that will destroy it. It acceptable to close a comms twice!
-
-**`bool PicoStillSending (PicoComms* M)`**   :   Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending.
-    
-**`void* PicoSay (PicoComms* M, const char* A, const char* B="", int Iter=0);`**   :   Prints a string to stdout. This can be used to debug or report things. This helpfully mentions if we are the parent or not, and also mentions our Comm's name. (`Name` is settable via `PicoConfig`).
-    
-
-### Configuration
-
-Use the config function to get the config struct. **`PicoConfig* PicoConf (PicoComms* M)`** You can configure "noise", "timeout", "name", and the maximum unread-message queue size.
-
-
-    struct PicoMessageConfig {
-        const char* Name;
-    /* For Reporting Events. If the parent comms name is "Helper",
-    then on close you will see "Parent.Helper: Closed Gracefully" in stdout. */
-        
-        float       SendTimeOut;
-    /* The number of seconds before a send will timeout
-    (if the send is not instant). */
-
-        int         QueueBytesRemaining;
-    /* The allowed combined-size for unread messages. There is no hard limit,
-    except the size of an int. Set it to 2GB if you want. 8MB default. */
-
-        int         Noise;
-	/* The amount of printing to StdOut that PicoMsg does.*/
-    };
-
-The `Noise` field, can be set to any of the below items. You can set it to silent, if you want PicoMsg to not be too "noisy" on StdOut. To set it to PicoNoiseAll to be the noisiest.
-
-    PicoSilent
-    PicoNoiseDebugChild	
-    PicoNoiseDebugParent
-    PicoNoiseDebug
-    PicoNoiseEventsChild
-    PicoNoiseEventsParent
-    PicoNoiseEvents
-    PicoNoiseAll        // combination of above
+`PicoConfig` is useful to configure things about PicoMsg, such as the timeout-value, maximum unread-message queue size, and some variables used to improve (or disable) error-reporting to stdout.
 
 
 Please support this work, by donating. Or perhaps buying some copper jewelry which I am making these days. You won't regret it!
