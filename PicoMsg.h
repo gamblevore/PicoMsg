@@ -156,7 +156,7 @@ static	std::atomic_int		pico_thread_count;
 static	int					pico_desired_thread_count = 1;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 static  bool				pico_suicide;
-extern "C" bool PicoStart (int Suicide=0);
+extern "C" bool PicoStart (int Suicide);
 //static thread_local PicoComms* pico_thread_parent;
 
 struct PicoBuff {
@@ -541,7 +541,7 @@ struct PicoComms : PicoCommsBase {
 		if (!Reading)
 			Reading = PicoBuff::New(Conf.Bits, "Read", this);
 
-		if (Reading and Sending and PicoStart()) return true;
+		if (Reading and Sending and PicoStart(0)) return true;
 		
 		return really_close() or failed(ENOBUFS);
 	}
@@ -666,15 +666,17 @@ extern "C" void PicoDestroy (PicoComms* M) _pico_code_ (
 )
 
 extern "C" PicoComms* PicoStartChild (PicoComms* M) _pico_code_ (
-/// Creates a new thread, using the function "fn", and passes a newly created PicoComms object to your function! Also cleans up the newly created PicoComms when done. Returns `false` if any error occurred. Look at PicoTest.cpp for a good example. :) You can pass two user-defined parameters.
+// Creates a new child comm and links them together. This is accomplished using sockets.
 	return M->InitPair(PicoNoiseEvents);
 )
 
 extern "C" bool PicoCompleteExec (PicoComms* M) _pico_code_ (
+/// Call this in your child process, (after completing exec), if you passed true to `PicoStartFork`. 
 	return M->InitExec();
 )
 
 extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj=0, const char** Args=0) _pico_code_ (
+/// Creates a new thread, using the function "fn", and passes a newly created PicoComms object to your function! Also cleans up the newly created PicoComms when done. Returns `false` if any error occurred. Look at PicoTest.cpp for a good example. :) You can pass two user-defined parameters.
 	return M->InitThread(PicoNoiseEvents, Obj, fn, Args);
 ) 
 
@@ -733,20 +735,22 @@ extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
 )
 
 extern "C" bool PicoIsParent (PicoComms* M) _pico_code_ (
+/// Returns if we are the parent, or child end of the comms.
 	return M->IsParent;
 )
 
 extern "C" bool PicoHasParentSocket () _pico_code_ (
+/// Returns if our app, created via `PicoStartFork(M, true)` (with the true param). This is in case your app could be launched in multiple ways. Like my compiler speedie can be run normally from the terminal, or run as a sub-process by the IDE, and then speedie will want to know if it was run as a sub-process via the IDE! This function informs speedie of that fact.
 	return getenv("__PicoSock__");
 )
 
-extern "C" bool PicoDesiredThreadCount (int C) _pico_code_ (
+extern "C" void PicoDesiredThreadCount (int C) _pico_code_ (
+// Allows to choose the desired amount of threads.
 	pico_desired_thread_count = C;
-	return !pico_list.Next or PicoStart();
 )
 
 extern "C" bool PicoStart (int Suicide) _pico_code_ (
-/// Starts the PicoMsg worker threads. The number of threads created is set by the glboal variable `pico_desired_thread_count`. You can pass 1 to `Suicide` param, to make the worker threads kill the app if it's parent dies. Or pass -1 to set it to false even if it was previously set. Passing 0 will leave it unchanged (defaults to not suiciding).
+/// Starts the PicoMsg worker threads. The number of threads created is set via PicoDesiredThreadCount. You can pass 1 to `Suicide` param, to make the worker threads kill the app if it's parent dies. Or pass -1 to set it to false even if it was previously set. Passing 0 will leave it unchanged (defaults to not suiciding).
 
 	if (Suicide)
 		pico_suicide = Suicide > 0 and getppid() > 1;
