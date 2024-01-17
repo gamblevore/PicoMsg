@@ -34,9 +34,9 @@ The API is mostly [described in PicoMsg.h itself](PicoMsg.h). However, a quick e
 
 Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThread` or `PicoStartFork` on your `PicoComms*`. Call `PicoDestroy` when you are finished.
 
-To send, use PicoSend (sends blocks of data), or PicoSendStr (sends c-strings).
+To send, use `PicoSend` (sends blocks of data), or `PicoSendStr` (sends c-strings).
 
-To receive, use PicoGet. Both calls are non-blocking by default, but you can ask to block within the function call itself.
+To receive, use `PicoGet`. Both calls are non-blocking by default, but you can ask to block within the function call itself.
 
 If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
 
