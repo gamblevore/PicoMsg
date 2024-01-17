@@ -30,7 +30,7 @@ Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`pico
 
 # API
 
-The API is mostly described in PicoMsg.h itself. However, a quick explanation is here:
+The API is mostly [described in PicoMsg.h itself](PicoMsg.h). However, a quick explanation is here:
 
 Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThread` or `PicoStartFork` on your `PicoComms*`. Call `PicoDestroy` when you are finished.
 
