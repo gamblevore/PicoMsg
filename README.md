@@ -42,7 +42,7 @@ If you are a C++ expert you might try to find the C++ Spiders I have left in the
 
 PicoMsg also has some util functions. These functions are not always needed, but available in case you need them.
 
-`PicoError` is very nice, because it returns an error that forced comms to close. If the comms is still open, the error is 0. The errors are from `errno`, so you can use `strerror` on them. For example, a PicoComms that was newly created, with have an error of `ENOTCONN`, meaning that it is not (yet) connected :) This error will go to 0, once you connect the comms.
+`PicoError` is very nice, because it returns an error that forced comms to close. If the comms is still open, the error is 0. The errors are from `errno`, so you can use `strerror` on them. For example, a PicoComms that was newly created, will have an error of `ENOTCONN`, meaning that it is not (yet) connected :) This error will go to 0, once you connect the comms.
 
 Other useful utils are: `PicoClose` (in case you want to close the comms from multiple points in your app), `PicoStillSending` (in case you want to give your app a chance to still send more data.), `PicoSay` is very informative and can help debug things.
 
