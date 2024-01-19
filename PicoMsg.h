@@ -373,6 +373,10 @@ struct PicoComms : PicoCommsBase {
 		return pid; 
 	}
 	
+	bool CanRead () {
+		return !(HalfClosed & 1) or !TheQueue.empty();
+	}
+	
 	bool StillSending () {
 		return !(HalfClosed & 2) and Sending->Length() > 0;	
 	}
@@ -731,6 +735,11 @@ extern "C" PicoConfig* PicoConf (PicoComms* M) _pico_code_ (
 extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
 ///  Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending.
 	return M?M->StillSending():false;
+)
+
+extern "C" bool PicoCanRead (PicoComms* M) _pico_code_ (
+/// Returns if we either HAVE unread messages, or MIGHT get them in the future (That is, it is not closed)
+	return M?M->CanRead():false;
 )
 
 extern "C" bool PicoIsParent (PicoComms* M) _pico_code_ (
