@@ -666,8 +666,9 @@ static int pico_any_still_sending () {
 }
 
 
+static float PicoRemainDefault = 5.0;
 static void pico_keep_alive () {
-	float Remain = 5.0;
+	auto Remain = PicoRemainDefault;
 	while (pico_any_still_sending() and Remain > 0) {
 		pico_sleep(0.001);
 		Remain -= 0.001;
@@ -771,6 +772,14 @@ extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
 ///  Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending. Pass nil to see if any are sending.
 	return M?M->StillSending():pico_any_still_sending();
 )
+
+extern "C" void PicoSleepForSend (float During, float After) _pico_code_ (
+///  Sleeps while sends occur. Useful to call last in your app.
+	PicoRemainDefault = During;
+	pico_keep_alive();
+	pico_sleep(After);
+)
+
 
 extern "C" bool PicoCanRead (PicoComms* M) _pico_code_ (
 /// Returns if we either HAVE unread messages, or MIGHT get them in the future (That is, it is not closed)
