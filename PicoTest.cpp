@@ -70,8 +70,8 @@ void* ThreadQuery (void* TM) {
 		PicoSay(M, "Passed", "", i+1);
 		free(OK.Data);
 	}
-	PicoClose(M);
-	return PicoSay(M, "Exit: Tests Passed!");
+	PicoClose(M, "Exit: Tests Passed!");
+	return 0;
 }
 
 
@@ -119,7 +119,7 @@ int TestPair (PicoComms* C) {
 		PicoSendStr(C, "pear🍐🍐🍐test");
 		GetAndSay(C2, 2.0);
 	}
-	PicoDestroy(C2);
+	PicoDestroy(C2, "Finished");
 	return 0;	
 }
 
@@ -180,7 +180,7 @@ int TestFork (PicoComms* C) {
 		PicoSay(C, "AllSent!");
 		while (RecIndex < MaxTests and TestIntenseCompare(C, 10)) {;}
 		PicoSay(C, "strings compared", "", RecIndex);
-		PicoClose(C);
+		PicoClose(C, "Completed");
 
 	} else {
 		C->Conf.Name = "Fixer";
@@ -200,9 +200,6 @@ int TestFork (PicoComms* C) {
 			if (PicoError(C)) break;
 		}
 		PicoSay(C, "NoMoreInput", "", Back);
-		
-		while (PicoStillSending(C))
-			sleep(1);
 	}
 	
 	PicoSay(C, "Acheived"); return 0;	
@@ -272,7 +269,7 @@ int main (int argc, const char * argv[]) {
 		return TestExec2(C);
 	  else
 		rz = TestThread(C);
-	PicoDestroy(C);
+	PicoDestroy(C, "Finished");
 	return rz;
 }
 
