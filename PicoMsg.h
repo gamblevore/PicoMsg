@@ -157,7 +157,7 @@ static	int					pico_desired_thread_count = 1;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 static  bool				pico_suicide;
 extern "C" bool PicoStart (int Suicide);
-//static thread_local PicoComms* pico_thread_parent;
+
 
 struct PicoBuff {
 	const char*			Name;
@@ -535,7 +535,11 @@ struct PicoComms : PicoCommsBase {
 	}
 	
 	bool get_pair_of (int* Socks) {
-		return  socketpair(PF_LOCAL, SOCK_STREAM, 0, Socks)==0  or  failed();
+		if (socketpair(PF_LOCAL, SOCK_STREAM, 0, Socks)) return failed();
+		struct linger so_linger = {1,5};
+		for (int i = 0; i < 2; i++)
+			if (setsockopt(Socks[i], SOL_SOCKET, SO_LINGER, &so_linger, sizeof so_linger)) return failed();
+		return true;
 	}
 	
 	bool alloc_buffs () {
