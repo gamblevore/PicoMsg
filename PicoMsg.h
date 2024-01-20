@@ -435,7 +435,7 @@ struct PicoComms : PicoCommsBase {
 
 		if (!Status) Status = ENOTCONN;
 		report_closed_buffers();
-		SayEvent("Disconnecting", Why);
+		if (CanSayDebug()) Say("Disconnecting", Why);
 	}
 	
 	void Destroy (const char* Why) {
