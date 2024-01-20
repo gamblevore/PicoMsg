@@ -156,6 +156,7 @@ static	std::atomic_int		pico_thread_count;
 static	int					pico_desired_thread_count = 1;
 static	const char*			pico_fail_actions[4] = {"Failed", "Reading", "Sending", 0};
 static  bool				pico_suicide;
+static  bool				pico_at_exit_done;
 extern "C" bool PicoStart (int Suicide);
 
 
@@ -621,23 +622,30 @@ struct PicoComms : PicoCommsBase {
 		return CanSayDebug() and Say("Closing");
 	}
 
-	PicoComms* io () {
-		auto N = NextComm();
-		if (Socket) {
-			do_reading();
-			do_sending();
-			if (HalfClosed>=3) really_close();
-		}
-		decr(); 
-		return N;
+	void io () {
+		if (!Socket) return;
+		do_reading();
+		do_sending();
+		if (HalfClosed>=3) really_close();
 	}
 };
 
 
+static bool pico_next (PicoComms*& M) {
+	if (PicoComms* Old = M; Old) {
+		M = M->NextComm();
+		Old->decr();
+	} else {
+		M = pico_list.NextComm();
+	}
+	return M;
+}
+
+
 static void pico_work_comms () {
-	auto M = pico_list.NextComm();
-	while (M)
-		M = M->io();
+	PicoComms* M = 0;
+	while (pico_next(M))
+		M->io();
 
 	if (pico_suicide and getppid() <= 1) {
 		pico_suicide = false;
@@ -649,7 +657,30 @@ static void pico_work_comms () {
 }
 
 
+static int pico_any_still_sending () {
+	PicoComms* M = 0;
+	int Count = 0;
+	while (pico_next(M))
+		Count += M->StillSending();
+	return Count;
+}
+
+
+static void pico_keep_alive () {
+	float Remain = 5.0;
+	while (pico_any_still_sending() and Remain > 0) {
+		pico_sleep(0.001);
+		Remain -= 0.001;
+	};
+}
+
+
 static void* pico_worker (void* Dummy) {
+	if (!pico_at_exit_done) {
+		pico_at_exit_done = true;
+		atexit(pico_keep_alive);
+	}
+
 	pico_thread_count++;
 	pico_last_activity = PicoGetDate(); // get to work!
 	while (true) pico_work_comms();
@@ -667,7 +698,7 @@ extern "C" PicoComms* PicoCreate ()  _pico_code_ (
 	return new PicoComms(PicoNoiseEvents, true, PicoDefaultInitSize);
 )
 
-extern "C" void PicoDestroy (PicoComms* M, const char* Why="Destroyed") _pico_code_ (
+extern "C" void PicoDestroy (PicoComms* M, const char* Why) _pico_code_ (
 /// Destroys the PicoComms object, and reclaims memory. Also closes the other side.
 	if (M) M->Destroy(Why);
 )
@@ -737,8 +768,8 @@ extern "C" PicoConfig* PicoConf (PicoComms* M) _pico_code_ (
 )
 
 extern "C" bool PicoStillSending (PicoComms* M) _pico_code_ (
-///  Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending.
-	return M?M->StillSending():false;
+///  Returns if the comms object is still in the business of sending. This is to let you keep your app open while busy sending. Pass nil to see if any are sending.
+	return M?M->StillSending():pico_any_still_sending();
 )
 
 extern "C" bool PicoCanRead (PicoComms* M) _pico_code_ (
