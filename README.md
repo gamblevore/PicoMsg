@@ -1,15 +1,18 @@
 # PicoMsg
 **Miniature Message Passing IPC System (Single Header C++ File)**
 
+
 ### Licence:
 https://creativecommons.org/licenses/by/4.0/ I chose this licence, for it's strict requirement of attribution, while still being quite permissive.
+
 
 ### About
 PicoMsg is a single-header, thread-safe, simple and fast message-passing library.
 
 PicoMsg uses the single-producer, single-consumer approach. PicoMsg is simpler and smaller than nanomsg and zeromq, at around 500 SLOC.
 
-PicoMsg uses two threads behind the scenes, to read and write. PicoMsg will communicate with sockets across processes. But if you are using PicoMsg to communicate within a process, it uses direct memory sharing! Much faster!
+PicoMsg uses a worker thread behind the scenes, to read and write. PicoMsg will communicate with sockets across processes. But if you are using PicoMsg to communicate within a process, it uses direct memory sharing! Much faster! You can also configure PicoMsg, like having multiple worker-threads, or changing how much memory it uses.
+
 
 ### Usage
 
@@ -19,14 +22,16 @@ The other side, will have two worker-threads that slurp up all your data. One th
 
 PicoMsg is open source. If the default behaviour is not good enough for you, feel free to tweak it! It shouldn't be hard to make the buffer-size growable if you really need that... or default to lower-sizes if you prefer.
 
+
 ### Building
 
-If you are using `Speedie` (my language) it will expect PicoMsg to be at `/usr/local/include/PicoMsg/`, and it **might** be good (depending on your needs) to have PicoMsg there anyhow as you can include it from all your projects. But PicoMsg will work fine no matter where it is placed.
+PicoMsg is best placed at `/usr/local/include/PicoMsg/PicoMsg.h` , but will work fine no matter where it is placed.
 
 	cd /usr/local/include/PicoMsg/
 	g++ PicoTest.cpp -o picotest -std=c++20 -Os
 
 Then you can run the executable using "`picotest 1`" or "`picotest 2`" or "`picotest 3`".
+
 
 # API
 
