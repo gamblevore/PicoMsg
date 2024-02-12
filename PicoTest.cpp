@@ -37,8 +37,8 @@ void* ThreadQuery (void* TM) {
 		if (n > Remain) n = Remain;
 		if (n < 1) n = 1;
 		Remain -= n;
-		Sent.push_back({n, abc});
-		PicoSend(M, {n, abc}, PicoSendCanTimeOut);
+		Sent.push_back({abc, n});
+		PicoSend(M, {abc, n}, PicoSendCanTimeOut);
 		auto Back = PicoGet(M);
 		if (Back) {
 			PicoSay(M, "User Got:", "", Back.Length);
@@ -76,7 +76,7 @@ void* ThreadQuery (void* TM) {
 
 
 bool GetAndSay (PicoComms* M, float t = 0, bool Final=false) {
-	auto Mary = PicoGet(M, t);
+	auto Mary = PicoGet(M, fabs(t));
 	if (Mary.Data) {
 		PicoSay(M, "Got", Mary.Data);
 		free(Mary.Data);
@@ -115,11 +115,21 @@ bool ThreadRespond (PicoComms* M) {
 
 int TestPair (PicoComms* C) {
 	auto C2 = PicoStartChild(C);
+//	C2->Conf.Noise = -1;
+//	 C->Conf.Noise = -1;
+	
 	if (C2) {
 		PicoSendStr(C, "pear🍐🍐🍐test");
-		GetAndSay(C2, 2.0);
+		PicoSendStr(C, "🏀🏀🏀");
+		while (GetAndSay(C2, -0.1)) {;}
+		PicoSendStr(C, "🏀🏀🏀");
+		while (GetAndSay(C2, -0.1)) {;}
+		PicoSendStr(C, "🏀🏀🏀");
+		PicoSendStr(C, "🏀🏀🏀");
+		PicoSendStr(C, "🧟‍♂️ 👀 👀 👀 👀");
+		while (GetAndSay(C2, -0.1)) {;}
 	}
-	PicoDestroy(C2, "Finished");
+	PicoDestroy(&C2, "Finished");
 	return 0;	
 }
 
@@ -167,7 +177,7 @@ int TestFork (PicoComms* C) {
 	if (PID) {
 		C->Conf.Name = "Tester";
 		char Out[20] = {}; memset(Out, -1, sizeof(Out));
-		PicoMessage Snd = {0, Out};
+		PicoMessage Snd = {Out, 0};
 		PicoSay(C, "Asks intensely");
 		int MaxTests = 100000;
 		for (int i = 0; i < MaxTests; i++) {
@@ -225,7 +235,7 @@ int TestExec (PicoComms* C, const char* self) {
 
 	char Data[20];
 	int Back = 0;
-	PicoMessage M = {0, Data};
+	PicoMessage M = {Data, 0};
 	for (int i = 0; i < 10000; i++) {
 		M.Length = TestWrite(Data, i+999);
 		if (PicoSend(C, M))
@@ -269,7 +279,7 @@ int main (int argc, const char * argv[]) {
 		return TestExec2(C);
 	  else
 		rz = TestThread(C);
-	PicoDestroy(C, "Finished");
+	PicoDestroy(&C, "Finished");
 	return rz;
 }
 
