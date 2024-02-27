@@ -3,6 +3,8 @@
 #include "PicoMsg.h"
 #include <unistd.h>
 #include <vector>
+#include <iostream>
+#include <bitset>
 using std::vector;
 
 
@@ -225,6 +227,55 @@ int TestThread (PicoComms* C) {
 
 extern char **environ;
 
+
+std::atomic_int   FinishedBash;
+const int         ThreadCount = 1;
+
+
+static void* Basher (int T) {
+	int Remain = 100000;
+ 	auto P = PicoCreate();
+	
+	while (Remain > 0) {
+		if (!P) {
+			P = PicoCreate();
+			continue;
+		}
+		P->Conf.Noise = 0;
+		auto P2 = PicoStartChild(P);
+		if (P2) {
+			Remain--;
+			P2->Conf.Noise = 0;
+			timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
+			PicoDestroy(&P);
+			PicoDestroy(&P2);
+//			printf("thread %i remaining: %i\n", T, Remain);
+//			pico_sleep(0.001);
+		}
+	}
+	FinishedBash++;
+	return 0;
+}
+
+
+int TestBash (PicoComms* B) {
+	// threadedly create/destroy a load of them...
+	pthread_t T = 0;
+	for (long i = 0; i < ThreadCount; i++)
+		if (pthread_create(&T, nullptr, (void*(*)(void*))Basher, (void*)i) or pthread_detach(T))
+			return false;
+	while (FinishedBash < ThreadCount) {
+		int SockO = pico_sock_open_count;
+		uint64_t Map = pico_list.Map;
+		printf("pico open sockets: %i", SockO);
+		std::cout << ",  Map: " << std::bitset<64>(Map) << std::endl;
+		pico_sleep(0.01);
+	}
+	printf("Bashed %i threads!\n", ThreadCount);
+	return 0;
+}
+
+
 int TestExec (PicoComms* C, const char* self) {
 	// so... fork, exec, then send messages to it.
 	int PID = PicoStartFork(C, true);
@@ -275,6 +326,8 @@ int main (int argc, const char * argv[]) {
 		rz = TestPair(C);
 	  else if (strcmp(S, "3")==0)
 		rz = TestExec(C, argv[0]);
+	  else if (strcmp(S, "4")==0)
+		rz = TestBash(C);
 	  else if (strcmp(S, "exec")==0)
 		return TestExec2(C);
 	  else
