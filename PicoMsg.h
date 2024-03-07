@@ -72,6 +72,12 @@ struct PicoGlobalConfig {
 };
 
 
+struct PicoGlobalStats {
+	int			TimeOutCount;
+	int         OpenSockets;
+	int			OpenPicos;
+};
+
 
 typedef bool (*PicoThreadFn)(PicoComms* M, void* self, const char** Args);
 
@@ -743,7 +749,10 @@ static bool pico_try_exit () {
 	if (pico_global_conf.SuicideIfParentDies and getppid() <= 1)
 		return true;
 
-	if (!pico_global_conf.TimeOut or !pico_last_read)
+	if (!pico_global_conf.TimeOut)
+		return false;
+
+	if (!pico_last_read)
 		return false;
 
 	PicoDate MaxTime = pico_global_conf.TimeOut + pico_last_read;
@@ -752,8 +761,9 @@ static bool pico_try_exit () {
 		return false;
 
 	// let's fail a number of times, first. in case of computer-suspend
-	if (pico_timeout_count++ > 12)
+	if (pico_timeout_count++ > 12) {
 		return true;
+	}
 	
 	pico_last_read = D - (pico_global_conf.TimeOut + 64*1024);
 	return false;
@@ -909,6 +919,12 @@ extern "C" bool PicoCanGet (PicoComms* M) _pico_code_ (
 	return M?M->CanGet():false;
 )
 
+extern "C" void PicoStats (PicoGlobalStats* F) _pico_code_ (
+	F->TimeOutCount = pico_timeout_count;
+	F->OpenSockets  = pico_sock_open_count;
+	F->OpenPicos    = __builtin_popcountll(pico_list.Map); 
+)
+
 extern "C" bool PicoIsParent (PicoComms* M) _pico_code_ (
 /// Returns if we are the parent, or child end of the comms.
 	return M->IsParent;
@@ -922,7 +938,6 @@ extern "C" bool PicoHasParentSocket () _pico_code_ (
 
 extern "C" bool PicoStart () _pico_code_ (
 /// Starts the PicoMsg worker threads. The number of threads created is set via PicoDesiredThreadCount.
-
 	if (!pico_at_exit_done) {
 		pico_at_exit_done = true;
 		atexit(pico_keep_sending);
