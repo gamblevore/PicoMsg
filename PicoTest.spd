@@ -3,14 +3,12 @@
 // This is a pico test written in Speedie, available at:
 http://github.com/gamblevore/speedie
 // You don't need this to use Pico. It's just an example of pico
-// in use, in other languages.
+// in use, in other languages. 
 
 main
-	|| p = pico().fork  #require
-	if (p.isparent)
-		p <~ "hello, hello" 
-		p.SleepForSend 
+	|| p = pico.fork() #require
+	if (p.IsParent)
+		p <~ "send and receive successful." 
+		printline p.Get(2.0) // wait at least 2.0 seconds
 	  else
-		"Child received: ${p.get(1).uppercase}"
-		
-
+		p <~ "Child says: " + p.get(1.0).UpperCase // wait at least 1.0 seconds, and then 
