@@ -1,14 +1,13 @@
 #!/usr/local/bin/spd
 
-// This is a pico test written in Speedie, available at:
+// This is a pico example for Speedie, available at:
 http://github.com/gamblevore/speedie
-// You don't need this to use Pico. It's just an example of pico
-// in use, in other languages. 
+// You should definitely check out Speedie!
 
 main
-	|| p = pico.fork() #require
+	|| p = pico.fork #require
 	if (p.IsParent)
-		p <~ "send and receive successful." 
-		printline p.Get(2.0) // wait at least 2.0 seconds
+		p <~ ".lufsseccus eviecer dna dneS" // ask the child to decode this
+		printline p.Get(2.0) // .get(x) waits at least x seconds
 	  else
-		p <~ "Child says: " + p.get(1.0).UpperCase // wait at least 1.0 seconds, and then 
+		p <~ "Child says: " + p.get(1.0).Reverse
