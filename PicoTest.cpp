@@ -20,7 +20,7 @@ uint hash (uint x) {
 
 void* ThreadQuery (void* TM) {
 	PicoComms* M = (PicoComms*)TM;
-	M->Conf.Name = "Query";
+	strcpy(M->Conf.Name, "Query");
 	PicoSendStr(M, "mary had a little lamb");
 	const int Stack = 49; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -91,7 +91,7 @@ bool GetAndSay (PicoComms* M, float t = 0, bool Final=false) {
 
 
 bool ThreadRespond (PicoComms* M) {
-	M->Conf.Name = "ThreadRespond";
+	strcpy(M->Conf.Name, "ThreadRespond");
 	GetAndSay(M, 6.0);
 	
 	int n = 0;
@@ -177,7 +177,7 @@ int TestFork (PicoComms* C) {
 	if (PID < 0)
 		return -PID;
 	if (PID) {
-		C->Conf.Name = "Tester";
+		strcpy(C->Conf.Name, "Tester");
 		char Out[20] = {}; memset(Out, -1, sizeof(Out));
 		PicoMessage Snd = {Out, 0};
 		PicoSay(C, "Asks intensely");
@@ -195,7 +195,7 @@ int TestFork (PicoComms* C) {
 		PicoClose(C, "Completed");
 
 	} else {
-		C->Conf.Name = "Fixer";
+		strcpy(C->Conf.Name, "Fixer");
 		int Back = 0;
 		char Out[20] = {}; memset(Out,-1,sizeof(Out));
 		while (auto Msg = PicoGet2(C, 10.0)) {
@@ -234,11 +234,11 @@ const int         ThreadCount = 1;
 
 static void* Basher (int T) {
 	int Remain = 100000;
- 	auto P = PicoCreate();
+ 	auto P = PicoCreate("Basher");
 	
 	while (Remain > 0) {
 		if (!P) {
-			P = PicoCreate();
+			P = PicoCreate("Basher2");
 			continue;
 		}
 		P->Conf.Noise = 0;
@@ -319,7 +319,7 @@ int main (int argc, const char * argv[]) {
 	int rz = 0;
 	const char* S = argv[1];
 	if (!S) S = "1";
-	auto C = PicoCreate();
+	auto C = PicoCreate(S);
 	if (strcmp(S, "1")==0)
 		rz = TestFork(C);
 	  else if (strcmp(S, "2")==0)
