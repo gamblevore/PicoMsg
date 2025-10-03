@@ -131,7 +131,7 @@ int TestPair (PicoComms* C) {
 		PicoSendStr(C, "🧟‍♂️ 👀 👀 👀 👀");
 		while (GetAndSay(C2, -0.1)) {;}
 	}
-	PicoDestroy(&C2, "Finished");
+	PicoDestroy(C2, "Finished");
 	return 0;	
 }
 
@@ -220,7 +220,7 @@ int TestFork (PicoComms* C) {
 int TestThread (PicoComms* C) {
 	if (!PicoStartThread(C, (PicoThreadFn)ThreadRespond)) return -1;
 	ThreadQuery(C);
-	sleep(2); // let ThreadRespond exit
+	pico_sleep(1.0); // let ThreadRespond exit
 	return 0;	
 }
 
@@ -247,10 +247,8 @@ static void* Basher (int T) {
 			Remain--;
 			P2->Conf.Noise = 0;
 			timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
-			PicoDestroy(&P);
-			PicoDestroy(&P2);
-//			printf("thread %i remaining: %i\n", T, Remain);
-//			pico_sleep(0.001);
+			PicoDestroy(P);
+			PicoDestroy(P2);
 		}
 	}
 	FinishedBash++;
@@ -279,9 +277,9 @@ int TestBash (PicoComms* B) {
 int TestExec (PicoComms* C, const char* self) {
 	// so... fork, exec, then send messages to it.
 	int PID = PicoStartFork(C, true);
-	if (!PID) { // we are the child... lets exec ourself
-		const char* args[3] = {self, "exec", 0};
-		return execve(self, (char**)args, environ); // in case it failed.
+	if (!PID) {
+		const char* args[3] = {self, "exec", 0}; // they child will call TestExec2()
+		return execve(self, (char**)args, environ);
 	}
 
 	char Data[20];
@@ -293,7 +291,7 @@ int TestExec (PicoComms* C, const char* self) {
 			PicoSay(C, "Sent", Data);
 		Back += GetAndSay(C);
 	}
-	sleep(1);
+	pico_sleep(1.0);
 	while (GetAndSay(C, 1, true)) {Back++;}
 	
 	PicoSay(C, "Total", "", Back);
@@ -302,7 +300,7 @@ int TestExec (PicoComms* C, const char* self) {
 
 
 int TestExec2 (PicoComms* C) {
-	if (!PicoCompleteExec(C)) return -1;
+	if (!PicoRestoreSockets(C)) return -1;
 	while (auto M = PicoGet2(C, 1)) {
 		if (!M)
 			return 0;
@@ -315,10 +313,65 @@ int TestExec2 (PicoComms* C) {
 }
 
 
+int TestPipeChild (int fd) {
+	for (int i = 0; i < 1000; i++) {
+		pico_sleep(0.001);
+//		dprintf(fd, "ABCDEFGH: %i\n", i+1);
+		printf("ABCDEFGH: %i\n", i+1);
+	} 
+	return 0;
+}
+
+
+int TestPipe (PicoComms* C) {
+	/// Uses pico to read from stdout / stderr
+	/// Avoids using `read()` directly, which causes lag (in my experience).
+
+	int StdOut[2];
+	pipe(StdOut);
+	puts("A");
+	
+	int PID = fork();
+	if (PID < 0) 
+		return PID;
+	if (!PID) {								// We are the child, lets print stuff.
+		close(StdOut[0]);
+		dup2(StdOut[1], STDOUT_FILENO);
+		close(StdOut[1]);
+		return TestPipeChild(StdOut[1]);
+	}
+	
+	close(StdOut[1]);
+	int FL = fcntl(StdOut[0], F_GETFL, 0);
+	fcntl(StdOut[0], F_SETFL, FL | O_NONBLOCK);
+//	PicoStartPipe(C, StdOut[0]);
+	
+	char buf[4*1024] = {};
+	while (true) {
+		pico_sleep(1.0);
+		int N = (int)read(StdOut[0], buf, 1024);
+		if (N == 0) break; // closed
+		if (N < 0) {
+			int Error = errno;
+			if (Error == EINTR or Error == EWOULDBLOCK  or  Error == EAGAIN)
+				continue;
+			printf("Error reading: %s\n", strerror(errno));
+		}
+		
+		buf[N] = 0;
+		puts(buf);
+//		auto Piece = PicoGet2(C, 60.0);
+//		if (!Piece) break;
+//		printf("%s", Piece.Data);
+	}
+	return 0;
+}
+
+
 int main (int argc, const char * argv[]) {
-	int rz = 0;
 	const char* S = argv[1];
 	if (!S) S = "1";
+	int rz = 0;
 	auto C = PicoCreate(S);
 	if (strcmp(S, "1")==0)
 		rz = TestFork(C);
@@ -326,13 +379,15 @@ int main (int argc, const char * argv[]) {
 		rz = TestPair(C);
 	  else if (strcmp(S, "3")==0)
 		rz = TestExec(C, argv[0]);
-	  else if (strcmp(S, "4")==0)
-		rz = TestBash(C);
 	  else if (strcmp(S, "exec")==0)
 		return TestExec2(C);
+	  else if (strcmp(S, "4")==0)
+		rz = TestBash(C);
+	  else if (strcmp(S, "5")==0)
+		rz = TestPipe(C);
 	  else
 		rz = TestThread(C);
-	PicoDestroy(&C, "Finished");
+	PicoDestroy(C, "Finished");
 	return rz;
 }
 
