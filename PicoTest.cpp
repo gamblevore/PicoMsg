@@ -70,7 +70,7 @@ void* ThreadQuery (void* TM) {
 		Remain -= n;
 		Sent.push_back({abc, n});
 		PicoSend(M, abc, n, PicoSendCanTimeOut);
-		auto Back = PicoGet2(M);
+		auto Back = PicoGetCpp(M);
 		if (Back) {
 			PicoSay(M, "User Got:", "", Back.Length);
 			Got.push_back(Back);
@@ -84,7 +84,7 @@ void* ThreadQuery (void* TM) {
 
 	PicoSay(M, "Comparing", "", (int)Sent.size());
 	
-	while (auto Back = PicoGet2(M, 7*(Sent.size() > Got.size()))) {
+	while (auto Back = PicoGetCpp(M, 7*(Sent.size() > Got.size()))) {
 		Got.push_back(Back);
 	}
 
@@ -107,7 +107,7 @@ void* ThreadQuery (void* TM) {
 
 
 bool GetAndSay (PicoComms* M, float t = 0, bool Final=false) {
-	auto Mary = PicoGet2(M, fabs(t));
+	auto Mary = PicoGetCpp(M, fabs(t));
 	if (Mary.Data) {
 		PicoSay(M, "Got", Mary.Data);
 		free(Mary.Data);
@@ -125,7 +125,7 @@ bool ThreadRespond (PicoComms* M) {
 	
 	int n = 0;
 	while (!PicoError(M)) {
-		auto Msg = PicoGet2(M, 1.3);
+		auto Msg = PicoGetCpp(M, 1.3);
 		if (!Msg) {
 			PicoSay(M, "NoMoreInput", "", n);
 			break;
@@ -185,7 +185,7 @@ int TestWrite(char* Out, int i, char Base=0) {
 int RecIndex = 0;
 bool TestIntenseCompare (PicoComms* C, float T) {
 	char Expected[20] = {};
-	auto Rec = PicoGet2(C, T); if (!Rec) return false;
+	auto Rec = PicoGetCpp(C, T); if (!Rec) return false;
 	auto Found = Rec.Data;
 	TestWrite(Expected, RecIndex);
 	printf("<-- %s %i\n", Found, RecIndex);
@@ -227,7 +227,7 @@ int TestFork (PicoComms* C) {
 		strcpy(C->Conf.Name, "Fixer");
 		int Back = 0;
 		char Out[20] = {}; memset(Out,-1,sizeof(Out));
-		while (auto Msg = PicoGet2(C, 10.0)) {
+		while (auto Msg = PicoGetCpp(C, 10.0)) {
 			auto D = Msg.Data; Msg.Data = Out;
 			int n = Msg.Length-1;
 			for (int j = 0; j < n; j++)
@@ -307,7 +307,7 @@ int TestExec (PicoComms* C, const char* self) {
 
 int TestExec2 (PicoComms* C) {
 	if (!PicoRestoreSockets(C)) return -1;
-	while (auto M = PicoGet2(C, 1)) {
+	while (auto M = PicoGetCpp(C, 1)) {
 		if (!M)
 			return 0;
 		PicoSay(C, "Got", M.Data);
@@ -354,7 +354,7 @@ int TestPipe (PicoComms* C) {
 	
 	while (true) {
 		pico_sleep(1.0);
-		auto Piece = PicoGet2(C, 0.01);
+		auto Piece = PicoGetCpp(C, 0.01);
 		if (!Piece) break;
 		printf("%s", Piece.Data);
 	}

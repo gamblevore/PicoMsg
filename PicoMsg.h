@@ -984,7 +984,7 @@ extern "C" void PicoGet (PicoComms* M, PicoMessage* Out, float Time=0) _pico_cod
 		*Out = M->Get(Time);
 )
 
-extern "C" PicoMessage PicoGet2 (PicoComms* M, float Time=0) _pico_code_ (
+extern "C" PicoMessage PicoGetCpp (PicoComms* M, float Time=0) _pico_code_ (
 /// In case you want something a bit fancier than PicoGet. Returns a struct... (this isn't strictly allowed in standard-C).
 	if (M)
 		return M->Get(Time);
