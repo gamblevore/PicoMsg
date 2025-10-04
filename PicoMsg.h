@@ -93,21 +93,13 @@ struct PicoGlobalStats {
 #else
 	#define _pico_code_(x) {x}
 
-	#include <poll.h>
 	#include <fcntl.h>
-	#include <stdio.h>
 	#include <unistd.h>
-	#include <string.h>
 	#include <pthread.h>
-	#include <sched.h>
 	#include <errno.h>
 	#include <sys/socket.h>
 	#include <algorithm>
-	#include <arpa/inet.h>
 	#include <atomic>
-	#include <execinfo.h>
-	#include <charconv>
-	#include <signal.h>
 
 
 extern "C" bool				PicoStart ();
