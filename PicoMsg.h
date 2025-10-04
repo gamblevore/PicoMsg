@@ -911,9 +911,11 @@ static void* pico_worker (void* Dummy) {
 #endif
 
 
+
 // ------------------------------------------------------------------------------------- //
 /// C-API, Documentation and Headers
 // ------------------------------------------------------------------------------------- //
+
 
 /// **Initialisation / Destruction** ///
 
@@ -992,6 +994,7 @@ extern "C" PicoMessage PicoGetCpp (PicoComms* M, float Time=0) _pico_code_ (
 
 
 /// **Utilities** ///
+
 extern "C" void PicoClose (PicoComms* M, const char* Why) _pico_code_ (
 /// Closes the comms object. Does not destroy it. Useful if you have many places that might need to close the comms, but only one place that will destroy it. It is acceptable to close a comms twice!
 	if (M) M->AskClose(Why);
@@ -1028,7 +1031,6 @@ extern "C" bool PicoHasParentSocket () _pico_code_ (
 /// Returns if our app, created via `PicoStartFork(M, true)` (with the true param). This is in case your app could be launched in multiple ways. Like my compiler speedie can be run normally from the terminal, or run as a sub-process by the IDE, and then speedie will want to know if it was run as a sub-process via the IDE! This function informs speedie of that fact.
 	return getenv("__PicoSock__");
 )
-
 
 extern "C" bool PicoStart () _pico_code_ (
 /// Starts the PicoMsg worker threads. The number of threads created is set via PicoDesiredThreadCount.
