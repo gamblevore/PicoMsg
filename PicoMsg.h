@@ -924,7 +924,6 @@ extern "C" PicoComms* PicoCreate (const char* Name, int BufferByteSize=0)  _pico
 	if (ID)
 		return new PicoComms(PicoNoiseEvents, true, BufferByteSize, Name, ID);
 	return nullptr;
-		
 )
 
 extern "C" PicoComms* PicoDestroy (PicoComms* M, const char* Why=0) _pico_code_ (
