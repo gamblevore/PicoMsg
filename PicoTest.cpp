@@ -7,6 +7,35 @@
 #include <bitset>
 using std::vector;
 
+std::atomic_int FinishedBash;
+
+static void* BasherThread (int T) {
+	int Remain = 1000;
+ 	PicoComms* P = 0;
+	
+	while (Remain > 0) {
+		if (!P) {
+			P = PicoCreate("Basher2");
+			continue;
+		}
+		P->Conf.Noise = 0;
+		auto P2 = PicoStartChild(P);
+		if (P2) {
+			strcpy(P2->Conf.Name, "Second");
+			Remain--;
+			P2->Conf.Noise = 0;
+			timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
+			P = PicoDestroy(P);
+			P2 = PicoDestroy(P2);
+			if (Remain % 256 == 0) {
+				puts("Sleeping...");
+				sleep(5);
+			}
+		}
+	}
+	FinishedBash++;
+	return 0;
+}
 
 uint hash (uint x) {
 	x ^= x >> 16;
@@ -227,48 +256,25 @@ int TestThread (PicoComms* C) {
 
 extern char **environ;
 
+int ThreadBash (PicoComms* B) {
+	// Threadedly create/destroy a load of PicoComm*'s
+	const int ThreadCount = 4;
 
-std::atomic_int   FinishedBash;
-const int         ThreadCount = 1;
-
-
-static void* Basher (int T) {
-	int Remain = 100000;
- 	auto P = PicoCreate("Basher");
-	
-	while (Remain > 0) {
-		if (!P) {
-			P = PicoCreate("Basher2");
-			continue;
-		}
-		P->Conf.Noise = 0;
-		auto P2 = PicoStartChild(P);
-		if (P2) {
-			Remain--;
-			P2->Conf.Noise = 0;
-			timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
-			PicoDestroy(P);
-			PicoDestroy(P2);
-		}
-	}
-	FinishedBash++;
-	return 0;
-}
-
-
-int TestBash (PicoComms* B) {
-	// threadedly create/destroy a load of them...
 	pthread_t T = 0;
 	for (long i = 0; i < ThreadCount; i++)
-		if (pthread_create(&T, nullptr, (void*(*)(void*))Basher, (void*)i) or pthread_detach(T))
+		if (pthread_create(&T, nullptr, (void*(*)(void*))BasherThread, (void*)i) or pthread_detach(T))
 			return false;
-	while (FinishedBash < ThreadCount) {
+	
+	while (true) {
+		bool WillExit = FinishedBash >= ThreadCount;
 		int SockO = pico_sock_open_count;
 		uint64_t Map = pico_list.Map;
 		printf("pico open sockets: %i", SockO);
 		std::cout << ",  Map: " << std::bitset<64>(Map) << std::endl;
-		pico_sleep(0.01);
+		if (WillExit) break;
+		pico_sleep(0.25);
 	}
+	
 	printf("Bashed %i threads!\n", ThreadCount);
 	return 0;
 }
@@ -316,7 +322,6 @@ int TestExec2 (PicoComms* C) {
 int TestPipeChild (int fd) {
 	for (int i = 0; i < 1000; i++) {
 		pico_sleep(0.001);
-//		dprintf(fd, "ABCDEFGH: %i\n", i+1);
 		printf("ABCDEFGH: %i\n", i+1);
 	} 
 	return 0;
@@ -324,12 +329,13 @@ int TestPipeChild (int fd) {
 
 
 int TestPipe (PicoComms* C) {
-	/// Uses pico to read from stdout / stderr
-	/// Avoids using `read()` directly, which causes lag (in my experience).
+	/// Uses pico to read `stdout` of a subprocess.
+	/// Avoids using `read()` directly, which has issues (in my experience)
+	/// `read()` suffers unavoidable lag, meaning it single-threaded for real-time situations
+	/// This can be adapted to read `stderr`. You would need one PicoComm for each.
 
 	int StdOut[2];
 	pipe(StdOut);
-	puts("A");
 	
 	int PID = fork();
 	if (PID < 0) 
@@ -344,25 +350,13 @@ int TestPipe (PicoComms* C) {
 	close(StdOut[1]);
 	int FL = fcntl(StdOut[0], F_GETFL, 0);
 	fcntl(StdOut[0], F_SETFL, FL | O_NONBLOCK);
-//	PicoStartPipe(C, StdOut[0]);
+	PicoStartPipe(C, StdOut[0]);
 	
-	char buf[4*1024] = {};
 	while (true) {
 		pico_sleep(1.0);
-		int N = (int)read(StdOut[0], buf, 1024);
-		if (N == 0) break; // closed
-		if (N < 0) {
-			int Error = errno;
-			if (Error == EINTR or Error == EWOULDBLOCK  or  Error == EAGAIN)
-				continue;
-			printf("Error reading: %s\n", strerror(errno));
-		}
-		
-		buf[N] = 0;
-		puts(buf);
-//		auto Piece = PicoGet2(C, 60.0);
-//		if (!Piece) break;
-//		printf("%s", Piece.Data);
+		auto Piece = PicoGet2(C, 0.01);
+		if (!Piece) break;
+		printf("%s", Piece.Data);
 	}
 	return 0;
 }
@@ -373,6 +367,7 @@ int main (int argc, const char * argv[]) {
 	if (!S) S = "1";
 	int rz = 0;
 	auto C = PicoCreate(S);
+	C->Say("Starting Test: ");
 	if (strcmp(S, "1")==0)
 		rz = TestFork(C);
 	  else if (strcmp(S, "2")==0)
@@ -382,7 +377,7 @@ int main (int argc, const char * argv[]) {
 	  else if (strcmp(S, "exec")==0)
 		return TestExec2(C);
 	  else if (strcmp(S, "4")==0)
-		rz = TestBash(C);
+		rz = ThreadBash(C);
 	  else if (strcmp(S, "5")==0)
 		rz = TestPipe(C);
 	  else
