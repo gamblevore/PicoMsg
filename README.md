@@ -18,7 +18,9 @@ PicoMsg uses a worker thread behind the scenes, to read and write. PicoMsg will 
 
 PicoMsg is almost always non-blocking. The default buffer sizes are: Send=1MB, Receive=1MB. The received message queue is allocated with malloc, and maxes at 8MB unread messages. If your program is busy sending a lot of data, it probably won't block.
 
-The other side, will have two worker-threads that slurp up all your data. One thing to remember, is that you can't send messages bigger than your buffers. That limits us to 1MB-4 bytes per message, by default. PicoMsg will send and get multiple messages per read/send event, if multiple are available.
+Pico uses one (or more if you like) threads slurping up all your data. To increase the thread count, set pico_global_conf.DesiredThreadCount to your desired amount, before calling any Pico functions.
+
+One thing to remember, is that you can't send messages bigger than your buffers. That limits us to 1MB-4 bytes per message, by default. PicoMsg will send and get multiple messages per read/send event, if multiple are available.
 
 If the default behaviour doesn't work for you, feel free to tweak it! You can specify the buffer size, by passing your size to `PicoCreate (const char* Name, int BufferByteSize)`. A size of 0, defaults to 1MB. The queue defaults to 8x the buffer size.
 
