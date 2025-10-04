@@ -9,7 +9,7 @@ https://creativecommons.org/licenses/by/4.0/ I chose this licence, for it's stri
 ### About
 PicoMsg is a single-header, thread-safe, simple and fast message-passing library.
 
-PicoMsg uses the single-producer, single-consumer approach. PicoMsg is simpler and smaller than nanomsg and zeromq, at around 500 SLOC.
+PicoMsg uses the single-producer, single-consumer approach. PicoMsg is simpler and smaller than nanomsg and zeromq, at around 700 SLOC.
 
 PicoMsg uses a worker thread behind the scenes, to read and write. PicoMsg will communicate with sockets across processes. But if you are using PicoMsg to communicate within a process, it uses direct memory sharing! Much faster! You can also configure PicoMsg, like having multiple worker-threads, or changing how much memory it uses.
 
