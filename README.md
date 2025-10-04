@@ -43,7 +43,7 @@ Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThre
 
 To send, use `PicoSend`. To receive, use `PicoGet`. Both calls are non-blocking by default, but you can ask to block within the function call itself.
 
-Theres also helper functions, like `PicoSendStr` (sends c-strings), or PicoGetCpp, which allows C++ style gets.
+Theres also helper functions: Like `PicoSendStr` (sends c-strings), and `PicoGetCpp` (allows C++ style gets).
 
 If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
 
