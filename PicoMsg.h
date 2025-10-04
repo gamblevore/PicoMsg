@@ -848,10 +848,9 @@ static bool pico_try_exit () {
 
 	// let's fail a number of times, first. in case of computer-suspend
 	if (pico_timeout_count++ > 12) {
-		return true;
+		return true; /// only happens if  `pico_global_conf.TimeOut` above is true.
 	}
 	
-//	puts("Pico: TimeOut");
 	pico_last_read = D - (pico_global_conf.TimeOut - 163840); // over 30 seconds
 	return false;
 }
