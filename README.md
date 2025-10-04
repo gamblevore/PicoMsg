@@ -16,16 +16,16 @@ PicoMsg uses a worker thread behind the scenes, to read and write. PicoMsg will 
 
 ### Usage
 
-PicoMsg is almost always non-blocking. The default buffer sizes are: Send=1MB, Receive=1MB, Queue <= 8MB (it grows). If your program is busy sending a lot of data, it probably won't block.
+PicoMsg is almost always non-blocking. The default buffer sizes are: Send=1MB, Receive=1MB. The received message queue is allocated with malloc, and maxes at 8MB unread messages. If your program is busy sending a lot of data, it probably won't block.
 
 The other side, will have two worker-threads that slurp up all your data. One thing to remember, is that you can't send messages bigger than your buffers. That limits us to 1MB-4 bytes per message, by default. PicoMsg will send and get multiple messages per read/send event, if multiple are available.
 
-PicoMsg is open source. If the default behaviour is not good enough for you, feel free to tweak it! It shouldn't be hard to make the buffer-size growable if you really need that... or default to lower-sizes if you prefer.
+If the default behaviour doesn't work for you, feel free to tweak it! You can specify the buffer size, by passing your size to `PicoCreate (const char* Name, int BufferByteSize)`. A size of 0, defaults to 1MB. The queue defaults to 8x the buffer size.
 
 
 ### Building
 
-PicoMsg is best placed at `/usr/local/include/PicoMsg/PicoMsg.h` , but will work fine no matter where it is placed.
+PicoMsg is best placed at `/usr/local/include/PicoMsg/PicoMsg.h`. That way, all your projects can include it! But will work fine no matter where it is placed.
 
 	cd /usr/local/include/PicoMsg/
 	g++ PicoTest.cpp -o picotest -std=c++20 -Os
@@ -39,9 +39,9 @@ The API is mostly [described in PicoMsg.h itself](PicoMsg.h). However, a quick e
 
 Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThread` or `PicoStartFork` on your `PicoComms*`. Call `PicoDestroy` when you are finished.
 
-To send, use `PicoSend` (sends blocks of data), or `PicoSendStr` (sends c-strings).
+To send, use `PicoSend`. To receive, use `PicoGet`. Both calls are non-blocking by default, but you can ask to block within the function call itself.
 
-To receive, use `PicoGet`. Both calls are non-blocking by default, but you can ask to block within the function call itself.
+Theres also helper functions, like `PicoSendStr` (sends c-strings), or PicoGet2, which allows C++ style gets.
 
 If you are a C++ expert you might try to find the C++ Spiders I have left in the code for you to discover! 🕸️ Don't worry they are friendly spiders.
 
