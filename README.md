@@ -57,6 +57,5 @@ Other useful utils are: `PicoClose` (in case you want to close the comms from mu
 
 `PicoConfig` is useful to configure things about PicoMsg, such as the timeout-value, maximum unread-message queue size, and some variables used to improve (or disable) error-reporting to stdout.
 
-
-Please support this work, by donating. Or perhaps buying some copper jewelry which I am making these days. You won't regret it!
+[Sponsor PicoMsg if you want to support this software.](https://github.com/sponsors/gamblevore)
 
