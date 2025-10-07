@@ -43,7 +43,7 @@ Start by calling `PicoCreate`, then call either `PicoStartChild`, `PicoStartThre
 
 To send, use `PicoSend`. To receive, use `PicoGet`. Both calls are non-blocking by default.
 
-`PicoGet()` can wait for responses (blocking) by passing a non-zero number to the `Time` parameter. `PicoSend()` can become blcoking if you pass `PicoSendCanTimeOut` (1) as to it's "Policy" parameter.
+`PicoGet()` can wait for responses (blocking) by passing a non-zero number to the `Time` parameter. `PicoSend()` can become blocking if you pass `PicoSendCanTimeOut` (1) to its "Policy" parameter.
 
 Theres also helper functions: Like `PicoSendStr` (sends c-strings), and `PicoGetCpp` (allows C++ style gets).
 
