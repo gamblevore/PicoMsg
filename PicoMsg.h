@@ -11,6 +11,7 @@
 /// Author: Theodore H. Smith, http://gamblevore.org
 
 
+
 #ifndef __PICO_MSG__
 #define __PICO_MSG__
 
@@ -31,7 +32,7 @@
 
 #include <stdint.h> // for picodate
 
-//
+/// todo: Could remove some locks, for a pico hard-coded to one worker-thread
 
 static float	PicoRemainDefault = 5.0;
 typedef	int64_t	PicoDate;  // Counts in 1/64K of a second. Gives 47-bits max seconds.
@@ -233,7 +234,7 @@ struct PicoBuff {
 	}
 	
 	void Decr () {
-		if (--RefCount == 0)
+		if (this and --RefCount == 0)
 			free(this);
 	}
 		
@@ -365,8 +366,10 @@ struct PicoComms {
 		
 		for (auto M = QueueHead; M.Data; M = pico_next_msg(M))
 			free(M.Data);
-		if (Sending) Sending->Decr();
-		if (Reading) Reading->Decr();
+		Sending->Decr();
+		Reading->Decr();
+		StdErr->Decr();
+		StdOut->Decr();
 		if (CanSayDebug()) Say("Deleted");
 		Guard = 0;
 		FinalGuard = 0;
@@ -374,7 +377,6 @@ struct PicoComms {
 
 
 	/// **Initialisation Helpers**
-
 	bool MiniPipe (int Pipe[2], int Mode, int Std) {
 		if (Mode >= 1) {
 			if (Mode == 1) 
@@ -404,15 +406,15 @@ struct PicoComms {
 	
 
 	/// **Initialisation**
-
 	int SimpleExec (bool NoMsgs, int NoStdOut, int NoStdErr, const char** argv) {
 		int PID = StartExec(NoMsgs, NoStdOut, NoStdErr);
-		if (PID != 0)
+		if (PID)
 			return PID;
+		// CHILD
 		int p = getpid();
 		setpgid(p, p);
 		execvp(argv[0], (char* const*)argv);
-		exit(errno); // in case of execvp fails
+		exit(errno); // execvp can fail!
 	}
 	
 	int StartExec (bool NoMsgs, int NoStdOut, int NoStdErr) {
@@ -434,11 +436,15 @@ struct PicoComms {
 			ChildClosePipes(Err, STDERR_FILENO);
 			return 0;
 		}
-
+		
+		PicoInit();
+		StdOut = PicoBuff::New(18, "stdout", this);
+		StdErr = PicoBuff::New(16, "stderr", this);
 		PID = ChildID;
 		close(Out[1]);
 		close(Err[1]);
 		mark_started();
+		PartClosed &=~ (8+4);
 		return PID;
 	}
 
@@ -514,8 +520,8 @@ struct PicoComms {
 		return std::atoi(x);
 	}
 	
-	void TextNumber (int N, char* S) {
-		int C = (int)log10( (double)N ) + 1;
+	int TextNumber (int N, char* S) {
+		int C = N ? (int)log10( (double)N ) + 1 : 1;
 		
 		S += C;
 		*S = 0;
@@ -524,6 +530,7 @@ struct PicoComms {
 			N = N / 10;
 			*--S = ('0' + P);
 		}
+		return C;
 	}
 	
 	pid_t StoreSock (int Succ) {
@@ -808,7 +815,6 @@ struct PicoComms {
 
 		if (Reading and Sending and PicoInit()) {
 			PartClosed &= (8+4);
-			
 			return true;
 		}
 		
@@ -880,6 +886,7 @@ struct PicoComms {
 		int P = PartClosed;
 		if (!Error) {
 			P |= Part;
+			puts("!!!!1!!!!!");
 			PartClosed = P;
 			return ((P & 3) == 3) and failed(EPIPE, Part);
 		}
@@ -1058,7 +1065,7 @@ extern "C" int PicoStartFork (PicoComms* M) _pico_code_ (
 	return M->StartFork(false);
 )
 
-extern "C" int PicoSimpleExec (PicoComms* M, const char** argv, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) _pico_code_ (
+extern "C" int PicoSimpleExec (PicoComms* M, const char** argv, bool NoMsgs=false, int NoStdOut=2, int NoStdErr=2) _pico_code_ (
 /// Will `exec` a new subprocess. Returns a child PID on success, otherwise returns `-errno`.
 /// The `PicoComms` passed can get `stderr`, `stdout` and `PicoMsg` connected.
 /// Thats up to 3 pipes that *can* be made. Each can be disabled.

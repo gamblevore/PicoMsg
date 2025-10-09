@@ -106,14 +106,14 @@ void* ThreadQuery (void* TM) {
 }
 
 
-bool GetAndSay (PicoComms* M, float t = 0, bool Final=false) {
+bool GetAndSay (PicoComms* M, float t) {
 	auto Mary = PicoGetCpp(M, fabs(t));
 	if (Mary.Data) {
 		PicoSay(M, "Got", Mary.Data);
 		free(Mary.Data);
 		return true;
 	}
-	if (t > 0 and !Final)
+	if (t > 0)
 		PicoSay(M, "failed get");
 	return false;
 }
@@ -165,8 +165,9 @@ int TestPair (PicoComms* C) {
 }
 
 
-int TestWrite(char* Out, int i, char Base=0) {
+int TestWrite (char* Out, int i, char Base=0) {
 	int j = 0;
+	// write text num, and text
 	for (int reps = 0; reps <= i % 3; reps++) {
 		int x = i;
 		while (j < 16) {
@@ -280,22 +281,45 @@ int ThreadBash (PicoComms* B) {
 }
 
 
+bool GetAndSayExec (PicoComms* M, float t, int i) {
+	auto Mary = PicoGetCpp(M, fabs(t));
+	if (Mary.Data) {
+		i++;
+		PicoSay(M, "Got", Mary.Data);
+		if (strncmp("bcd", Mary.Data, 3)) {
+			PicoSay(M, "no bcd at", 0, i);
+			return false;
+		}
+		int x = atoi(Mary.Data+3);
+		if (x!=i) {
+			PicoSay(M, "mismatch at", 0, i);
+			return false;
+		}
+			
+		free(Mary.Data);
+		return true;
+	}
+	if (t > 0 and i!=10000)
+		PicoSay(M, "failed get");
+	return false;
+}
+
 int TestExec (PicoComms* C, const char* self) {
 	const char* Args[3] = {self, "exec", 0};
 	int PID = PicoSimpleExec(C, Args);
 	if (PID < 0) return -PID;
 
-	char Data[20];
+	char Data[20] = {'a', 'b', 'c'};
 	int Back = 0;
 	PicoMessage M = {Data, 0};
 	for (int i = 0; i < 10000; i++) {
-		M.Length = TestWrite(Data, i+999);
+		M.Length = C->TextNumber(i+1, Data+3)+4;
 		if (PicoSend(C, M.Data, M.Length))
 			PicoSay(C, "Sent", Data);
-		Back += GetAndSay(C);
+		Back += GetAndSayExec(C, 0.0, Back);
 	}
 	pico_sleep(1.0);
-	while (GetAndSay(C, 1, true)) {Back++;}
+	while (GetAndSayExec(C, 1.0, Back)) {Back++;}
 	
 	PicoSay(C, "Total", "", Back);
 	return 0;
@@ -308,8 +332,11 @@ int TestExec2 (PicoComms* C) {
 		if (!M)
 			return 0;
 		PicoSay(C, "Got", M.Data);
-		for (int i = 0; i < M.Length-1; i++)
-			M.Data[i]++;
+		for (int i = 0; i < M.Length-1; i++) {
+			auto ch = M.Data[i];
+			if (ch < '0' or ch > '9')
+				M.Data[i]++;
+		}
 		PicoSend(C, M.Data, M.Length);
 	}
 	return 0;
