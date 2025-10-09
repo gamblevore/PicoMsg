@@ -281,10 +281,10 @@ int ThreadBash (PicoComms* B) {
 
 
 int TestExec (PicoComms* C, const char* self) {
-	// so... fork, exec, then send messages to it.
 	const char* Args[3] = {self, "exec", 0};
-	int PID = PicoStartExec(C, Args);
-	if (PID < 0) return PID;
+	int PID = PicoSimpleExec(C, Args);
+	if (PID < 0) return -PID;
+
 	char Data[20];
 	int Back = 0;
 	PicoMessage M = {Data, 0};
@@ -303,7 +303,7 @@ int TestExec (PicoComms* C, const char* self) {
 
 
 int TestExec2 (PicoComms* C) {
-	if (!PicoFinishFork(C)) return -1;
+	if (!PicoRestoreExec(C)) return -1;
 	while (auto M = PicoGetCpp(C, 1)) {
 		if (!M)
 			return 0;

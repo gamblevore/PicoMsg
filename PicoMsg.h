@@ -372,7 +372,76 @@ struct PicoComms {
 		FinalGuard = 0;
 	}
 
+
+	/// **Initialisation Helpers**
+
+	bool MiniPipe (int Pipe[2], int Mode, int Std) {
+		if (Mode >= 1) {
+			if (Mode == 1) 
+				close(Std);
+			return true;
+		}
+
+		if (int P = pipe(Pipe); P)
+			return failed();
+		unblock(Pipe[0]);
+		return true;
+	}
+	
+	void* ChildClosePipes (int* Capture, int Std_FileNo) {
+		int WR = Capture[1];
+		if (WR >= 0) {
+			while (dup2(WR, Std_FileNo) == -1) {
+				int err = errno;
+				if (err != EINTR and err != EBUSY)	
+					return failed();
+			}
+			close(WR);
+			close(Capture[0]);
+		}
+		return nullptr;
+	}
+	
+
 	/// **Initialisation**
+
+	int SimpleExec (bool NoMsgs, int NoStdOut, int NoStdErr, const char** argv) {
+		int PID = StartExec(NoMsgs, NoStdOut, NoStdErr);
+		if (PID != 0)
+			return PID;
+		int p = getpid();
+		setpgid(p, p);
+		execvp(argv[0], (char* const*)argv);
+		exit(errno); // in case of execvp fails
+	}
+	
+	int StartExec (bool NoMsgs, int NoStdOut, int NoStdErr) {
+		int Out[2] = {-1, -1};
+		if (!MiniPipe(Out, NoStdOut, STDOUT_FILENO))
+			return -errno;
+		int Err[2] = {-1, -1};
+		if (!MiniPipe(Err, NoStdErr, STDERR_FILENO)) {
+			GiveUp(Out);
+			return -errno;
+		}
+
+		int ChildID = NoMsgs?fork():StartFork(true);
+		if (ChildID < 0)
+			return -errno;
+		
+		if (ChildID == 0) {
+			ChildClosePipes(Out, STDOUT_FILENO);
+			ChildClosePipes(Err, STDERR_FILENO);
+			return 0;
+		}
+
+		PID = ChildID;
+		close(Out[1]);
+		close(Err[1]);
+		mark_started();
+		return PID;
+	}
+
 	bool StartThread (int Noise, void* Self, PicoThreadFn fn, const char** Args) {
 		if (!alloc_msg_buffs()) return false;
 
@@ -422,49 +491,15 @@ struct PicoComms {
 		if (!IsParent) {
 			pico_thread_count = 0; // Forked process don't keep threads.
 			if (SaveSocket)
-				return StoreSock(S, pid);
+				return StoreSock(S);
 		} 
 		
 		PID = pid;
 		add_msg_buffs(S);
 		return pid; 
 	}
-	
-	int StartExec (const char** argv, bool NoMsgs, int NoStdOut, int NoStdErr) {
-//		int CaptureOut[2] = {-1,-1};
-//		int CaptureErr[2] = {-1,-1};
-//		StartPico(S->StdOut, CaptureOut);
-//		StartPico(S->StdErr, CaptureErr);
-//		
-//		int ChildID = PicoStartFork(C, true);
-//		if (ChildID == 0) {
-//			int Mode = S->Mode; // We are the child!
-//			if (Mode&2) {
-//				int p = getpid();
-//				setpgid(p, p);
-//			}
-//			
-//			CloseAndDup(Mode, CaptureOut, kStdOutSilence, STDOUT_FILENO);
-//			CloseAndDup(Mode, CaptureErr, kStdErrSilence, STDERR_FILENO);
-//			
-//			execvp(argv[0], (char* const*)argv);
-//			_exit(errno); // in case execvp fails
-//		}
-//
-//		byte Result = 0;
-//		if (ChildID > 0) {
-//			S->_Status = -1;
-//			printf("Created Process: %i\n", ChildID);
-//			S->PID = ChildID;
-//			pipe_close(CaptureOut[WR]);
-//			pipe_close(CaptureErr[WR]);
-//		} else {
-//			Result = errno;
-//			JB_ErrorHandleFile(S->Path, nil, Result, nil, "run");
-//		}
-		return 0;
-	}
 	/// **End of  Initialisation**
+	
 	
 	int GiveUp (int* Socks) {
 		close(Socks[0]);
@@ -491,11 +526,10 @@ struct PicoComms {
 		}
 	}
 	
-	pid_t StoreSock (int Succ, pid_t pid) {
-		char Data[8];
-		TextNumber(Succ, Data);
+	pid_t StoreSock (int Succ) {
+		char Data[8]; TextNumber(Succ, Data);
 		setenv("__PicoSock__", Data, 1);
-		return pid;
+		return 0;
 	}
 
 	bool CanGet () {
@@ -782,18 +816,22 @@ struct PicoComms {
 		return failed(ENOBUFS);
 	}
 
+	void unblock (int Pipe) {
+		int FL = fcntl(Pipe, F_GETFL, 0);
+		if (FL >= 0) {
+			fcntl(Pipe, F_SETFL, FL | O_NONBLOCK);
+		} else {
+			failed();
+		}
+	}
+	
 	bool add_msg_buffs (int Sock) {
 		if (int S = Socket; S > 0) { // currently open still.
 			Socket = 0;
 			close(S);
 			pico_sock_open_count--;
 		}
-		int FL = fcntl(Sock, F_GETFL, 0);
-		if (FL >= 0) {
-			fcntl(Sock, F_SETFL, FL | O_NONBLOCK);
-		} else {
-			failed();
-		}
+		unblock(Sock);
 		Socket = Sock;
 		pico_sock_open_count++;
 		return alloc_msg_buffs() and mark_started();
@@ -1018,13 +1056,9 @@ extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj=0, con
 extern "C" int PicoStartFork (PicoComms* M) _pico_code_ (
 /// This will fork your app, and then connect the two apps with PicoMsg. Returns the result of `fork()`. So handle it just the same.
 	return M->StartFork(false);
-) // --------------->>
-	extern "C" bool PicoFinishFork (PicoComms* M) _pico_code_ (
-	/// Call this in your child process, (after completing exec), if you passed true to `PicoStartFork`. 
-		return M->RestoreExec();
-	)
+)
 
-extern "C" int PicoStartExec (PicoComms* M, const char** argv, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) {
+extern "C" int PicoSimpleExec (PicoComms* M, const char** argv, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) _pico_code_ (
 /// Will `exec` a new subprocess. Returns a child PID on success, otherwise returns `-errno`.
 /// The `PicoComms` passed can get `stderr`, `stdout` and `PicoMsg` connected.
 /// Thats up to 3 pipes that *can* be made. Each can be disabled.
@@ -1033,9 +1067,18 @@ extern "C" int PicoStartExec (PicoComms* M, const char** argv, bool NoMsgs=false
 	/// 1) Closes the pipe. We don't get it. No one gets it. It just disappears.
 	/// 2) PassThru of piped data. If the child prints to `stdout`, it appears as our `stdout`. (Done via pipe setup. We don't touch the data.)
 /// `NoMsgs` is similar, except that its either 1 or 0. Passthru is not available. 
-	return M->StartExec(argv, NoMsgs, NoStdOut, NoStdErr);
-} ;;;/*_*/;;; // 🕷️_🕷️	
+	return M->SimpleExec(NoMsgs, NoStdOut, NoStdErr, argv);
+)
 
+
+extern "C" int PicoStartExec (PicoComms* M, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) _pico_code_ (
+/// Similar to `PicoSimpleExec()`, but doesn't call `exec()` after `fork()`. This allows your child process to do final setup before you call `exec()` yourself. 
+	return M->StartExec(NoMsgs, NoStdOut, NoStdErr);
+) ;;;/*_*/;;; // 🕷️_🕷️	
+
+extern "C" bool PicoRestoreExec (PicoComms* M) _pico_code_ (
+	return M->RestoreExec();
+)
 
 
 /// **Communications** ///
@@ -1069,8 +1112,6 @@ extern "C" PicoMessage PicoStdErr (PicoComms* M) {
 extern "C" PicoMessage PicoStdOut (PicoComms* M) {
 	return M->ReadStdOut();
 }
-
-
 
 extern "C" bool PicoAppend(PicoComms* M, PicoAppenderFn Fn, void* Obj) _pico_code_ (
 /// Similar to PicoGet, but only used on pipe input, and the data is written to your desired location.
@@ -1267,34 +1308,3 @@ void JB_SigChild (int signum) {
 }
  */
  
-static bool Dup2_(int from, int to) { // so this kinda does what dup2 should do.
-	while (from > 0 and dup2(from, to) == -1) {
-		int err = errno;
-		if (err != EINTR and err != EBUSY)	
-			return false;
-	}
-	return true;
-}
-
-
-static void StartPico (PicoComms* M, int* Both) {
-	if (M and (pipe(Both) == 0)) {
-		int fd = Both[0];
-		int FL = fcntl(fd, F_GETFL, 0);
-		if (FL>=0)
-			fcntl(fd, F_SETFL, FL | O_NONBLOCK);
-//		PicoStartPipe(M, fd);
-	}
-}
-
-
-static void CloseAndDup (int Mode, int* Capture, int Mask, int Std_FileNo) {
-	if (Mode&Mask) {
-		close(Std_FileNo);
-	} else {
-		Dup2_( Capture[1], Std_FileNo );
-		close(Capture[1]);
-		close(Capture[0]);
-	}
-}
-
