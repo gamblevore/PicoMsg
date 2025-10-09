@@ -1025,14 +1025,14 @@ extern "C" int PicoStartFork (PicoComms* M) _pico_code_ (
 	)
 
 extern "C" int PicoStartExec (PicoComms* M, const char** argv, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) {
-/// Will work and `exec` a new subprocess. Returns `0` on success, otherwise returns an `errno` value.
-/// The PicoComms passed will contain `stderr`, `stdout` and a `PicoMsg` connection.
-/// So thats up to 3 pipes that *can* be made. Each can be disabled.
-/// The values that `NoStdOut` and `NoStdErr` take are:
-	/// 0) Captures piped data and saves it in our `PicoComms` buffers.
+/// Will `exec` a new subprocess. Returns a child PID on success, otherwise returns `-errno`.
+/// The `PicoComms` passed can get `stderr`, `stdout` and `PicoMsg` connected.
+/// Thats up to 3 pipes that *can* be made. Each can be disabled.
+/// The values that `NoStdOut` / `NoStdErr` take are:
+	/// 0) Captures piped data and saves it in our `PicoComms`.
 	/// 1) Closes the pipe. We don't get it. No one gets it. It just disappears.
-	/// 2) Passes piped data thru us, as if were our output, no capturing. (This is done via pipe setup. We don't touch the data.)
-/// `NoMsgs` is similar, except that its either 1 or 0. We can't passthru the message connection. 
+	/// 2) PassThru of piped data. If the child prints to `stdout`, it appears as our `stdout`. (Done via pipe setup. We don't touch the data.)
+/// `NoMsgs` is similar, except that its either 1 or 0. Passthru is not available. 
 	return M->StartExec(argv, NoMsgs, NoStdOut, NoStdErr);
 } ;;;/*_*/;;; // 🕷️_🕷️	
 
