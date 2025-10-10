@@ -35,7 +35,7 @@
 /// todo: Could remove some locks, for a pico hard-coded to one worker-thread
 
 static float	PicoRemainDefault = 5.0;
-typedef	int64_t	PicoDate;  // Counts in 1/64K of a second. Gives 47-bits max seconds.
+typedef	int64_t	PicoDate;  // Resolution is 1s/64K, at ±445M years range.
 
 struct			PicoComms;
 struct			PicoGlobalConfig;
@@ -211,15 +211,26 @@ struct PicoLister {
 };
 
 
+
+#ifdef PICO_LOG
+	#include <fcntl.h>
+	#include <sys/stat.h>
+	extern "C" PicoConfig* PicoCommsConf (PicoComms* M);
+#endif
+
+
 struct PicoBuff {
 	const char*			Name;
 	std::atomic_uint	Tail;
 	std::atomic_uint	Head;
 	int					Size;
 	int					Pipe;
+	#ifdef PICO_LOG
+	int					LogFD;
+	#endif
 	std::atomic_short	RefCount;	
 	PicoComms*			Owner;
-	char				SectionStart[0];             ;;;/*_*/;;;
+	char				Data[0];             ;;;/*_*/;;;
 
 	static PicoBuff* New (int bits, const char* name, PicoComms* O) { // 🕷️vv🕷️
 		PicoBuff* Rz = nullptr; bits++; 
@@ -230,33 +241,22 @@ struct PicoBuff {
 		}
 		Rz->Tail = 0; Rz->Head = 0; Rz->Owner = O; Rz->RefCount = 1; Rz->Pipe = 0;
 		Rz->Size = 1<<bits; Rz->Name = name;
+	#ifdef PICO_LOG
+		char Path[128] = {};
+		snprintf(Path, sizeof(Path), "%s/%s/%s.txt", PICO_LOG, PicoCommsConf(O)->Name, name);
+		int Sep = (int)(strlen(PICO_LOG) + 1 + strlen(PicoCommsConf(O)->Name));
+		Path[Sep] = 0;	
+		if (mkdir(Path, 0755) < 0 and errno!=EEXIST) {
+			printf("%s creating LOG: %s\n", strerror(errno), Path);
+			exit(-1);
+		}
+			
+		Path[Sep] = '/';	
+		Rz->LogFD = open(Path, O_WRONLY|O_CREAT|O_TRUNC|0755);
+	#endif
 		return Rz;
 	}
 	
-	void Decr () {
-		if (this and --RefCount == 0)
-			free(this);
-	}
-		
-	PicoMessage AskUsed () {
-		int T = Tail; int H = Head; int S = Size; int B = S - 1;
-		if (T >= H) return {};
-		T &= B; H &= B; // 🕷️ _ 🕷️
-		if (T >= H) // tail to head... or to size
-			H = S;
-		return {SectionStart+T, H-T}; // 🕷️w🕷️
-	}
-	
-	PicoMessage AskUnused () {
-		int T = Tail; int H = Head; int S = Size; int B = S-1;
-		int L = H - T;
-		if (L >= S) return {};
-		T &= B; H &= B;
-		if (T > H) // head to size, or head to tail.
-			S = T;
-		return {SectionStart+H, S-H};
-	}
-
 	void lost (int N) {
 		pico_global_conf.LastActivity = PicoGetDate();
 		Tail += N;
@@ -267,21 +267,7 @@ struct PicoBuff {
 		Head += N;
 	} ;;;/*_*/;;;
 	
-	int Length () {
-		return Head - Tail;
-	}  										;;;/*_*/;;;
-
-	bool AppendOutput (const char* Src, int MsgLen) {
-		int NetLen = htonl(MsgLen);
-		if (Size - Length() >= MsgLen+PicoMsgInfo) {
-			append_sub((char*)&NetLen, PicoMsgInfo);
-			append_sub(Src, MsgLen);
-			return true;
-		}
-		return false;
-	}
-	
-	void append_sub (const char* Src, int Need) {
+	void send_sub (const char* Src, int Need) {
 		while (auto Dest = AskUnused()) {
 			int Avail = std::min(Need, Dest.Length);
 			memcpy(Dest.Data, Src, Avail);
@@ -292,7 +278,52 @@ struct PicoBuff {
 		};
 	}
 	
-	bool Get (char* Dest, int N) {
+	static void Decr (PicoBuff* self) {
+		if (self and --(self->RefCount) == 0)
+			free(self);
+	}
+		
+	PicoMessage AskUsed () {
+		int T = Tail; int H = Head; int S = Size; int B = S - 1;
+		if (T >= H) return {};
+		T &= B; H &= B; // 🕷️ _ 🕷️
+		if (T >= H) // tail to head... or to size
+			H = S;
+		return {Data+T, H-T}; // 🕷️w🕷️
+	}
+	
+	PicoMessage AskUnused () {
+		int T = Tail; int H = Head; int S = Size; int B = S-1;
+		int L = H - T;
+		if (L >= S) return {};
+		T &= B; H &= B;
+		if (T > H) // head to size, or head to tail.
+			S = T;
+		return {Data+H, S-H};
+	}
+
+	int Length () {
+		return Head - Tail;
+	}  										;;;/*_*/;;;
+	void Log (const char* Src, int Length) {
+	#ifdef PICO_LOG
+		if (LogFD)
+			dprintf(LogFD, "\"%.*s\"\n", Length, Src );
+	#endif
+	}
+
+	bool SendOutput (const char* Src, int MsgLen) {
+		this->Log(Src, MsgLen); // so i can search -> Log and get all.
+		int NetLen = htonl(MsgLen);
+		if (Size - Length() >= MsgLen+PicoMsgInfo) {
+			send_sub((char*)&NetLen, PicoMsgInfo);
+			send_sub(Src, MsgLen);
+			return true;
+		}
+		return false;
+	}
+	
+	bool ReadInput (char* Dest, int N) {
 		while (auto Msg = AskUsed()) {
 			int B = std::min(Msg.Length, N); // 🕷️_🕷️
 			memcpy(Dest, Msg.Data, B);
@@ -366,10 +397,10 @@ struct PicoComms {
 		
 		for (auto M = QueueHead; M.Data; M = pico_next_msg(M))
 			free(M.Data);
-		Sending->Decr();
-		Reading->Decr();
-		StdErr->Decr();
-		StdOut->Decr();
+		PicoBuff::Decr(Sending);
+		PicoBuff::Decr(Reading);
+		PicoBuff::Decr(StdErr );
+		PicoBuff::Decr(StdOut );
 		if (CanSayDebug()) Say("Deleted");
 		Guard = 0;
 		FinalGuard = 0;
@@ -406,8 +437,8 @@ struct PicoComms {
 	
 
 	/// **Initialisation**
-	int SimpleExec (bool NoMsgs, int NoStdOut, int NoStdErr, const char** argv) {
-		int PID = StartExec(NoMsgs, NoStdOut, NoStdErr);
+	int SimpleExec (const char* DebugName, bool NoMsgs, int NoStdOut, int NoStdErr, const char** argv) {
+		int PID = StartExec(DebugName, NoMsgs, NoStdOut, NoStdErr);
 		if (PID)
 			return PID;
 		// CHILD
@@ -417,17 +448,13 @@ struct PicoComms {
 		exit(errno); // execvp can fail!
 	}
 	
-	int StartExec (bool NoMsgs, int NoStdOut, int NoStdErr) {
-		int Out[2] = {-1, -1};
-		if (!MiniPipe(Out, NoStdOut, STDOUT_FILENO))
+	int StartExec (const char* Name, bool NoMsgs, int NoStdOut, int NoStdErr) {
+		int Out[2] = {-1, -1};  int Err[2] = {-1, -1};
+		if ( (!MiniPipe(Out, NoStdOut, STDOUT_FILENO))
+		  or (!MiniPipe(Err, NoStdErr, STDERR_FILENO)  and  GiveUp(Out) < 0))
 			return -errno;
-		int Err[2] = {-1, -1};
-		if (!MiniPipe(Err, NoStdErr, STDERR_FILENO)) {
-			GiveUp(Out);
-			return -errno;
-		}
 
-		int ChildID = NoMsgs?fork():StartFork(true);
+		int ChildID = NoMsgs?fork():StartFork(Name, true);
 		if (ChildID < 0)
 			return -errno;
 		
@@ -485,7 +512,7 @@ struct PicoComms {
 		return StartSocket(FindSock()); 
 	}
 	
-	pid_t StartFork (bool SaveSocket) {
+	pid_t StartFork (const char* ChildName, bool SaveSocket) {
 		int Socks[2] = {};
 		if (!get_pair_of(Socks)) return -1;
 		pid_t pid = fork();
@@ -495,6 +522,8 @@ struct PicoComms {
 		close(Socks[!IsParent]);
 		int S = Socks[IsParent];
 		if (!IsParent) {
+			if (ChildName)
+				strncpy(Conf.Name, ChildName, sizeof(Conf.Name));
 			pico_thread_count = 0; // Forked process don't keep threads.
 			if (SaveSocket)
 				return StoreSock(S);
@@ -570,7 +599,7 @@ struct PicoComms {
 			int L = B->Length();
 			if (L > 0) {
 				if (char* Data = (char*)malloc(L); Data) {
-					B->Get(Data, L);
+					B->ReadInput(Data, L);
 					return {Data, L};
 				}
 				fail_alloc(L);
@@ -684,7 +713,7 @@ struct PicoComms {
 	}
 
 	bool queue_sub (const char* msg, int n) {
-		if (!Sending or !Sending->AppendOutput(msg, n)) return false;
+		if (!Sending or !Sending->SendOutput(msg, n)) return false;
 		if (Socket < 0) Conf.LastSend = PicoGetDate(); // threaded
 		return true;
 	}
@@ -694,13 +723,14 @@ struct PicoComms {
 			int Amount = 0;
 			if (B->Pipe)
 				Amount = (int)read(Socket, Msg.Data, Msg.Length);
-			  else // maybe nicer to avoid sockets and just use pipes. Simpler and more flexible code
+			  else // maybe nicer to avoid sockets and just use pipes. Simpler and more flexible.
 			       // and can still use sockets.
 				Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount <= 0) {
 				if (!io_pass(Amount, 2)) break;
 				continue;
 			}
+			B->Log(Msg.Data, Msg.Length);
 			pico_last_read = PicoGetDate();
 			pico_timeout_count = 0;			// reset
 			B->gained(Amount);
@@ -761,7 +791,7 @@ struct PicoComms {
 		int L = LengthBuff;
 		if (!L) {
 			if (Reading->Length() < PicoMsgInfo) return false;
-			Reading->Get((char*)&LengthBuff, PicoMsgInfo);
+			Reading->ReadInput((char*)&LengthBuff, PicoMsgInfo);
 			L = LengthBuff = ntohl(LengthBuff);
 			if ( Reading->Size < L + PicoMsgInfo ) // msg bigger than our buffers
 				return failed(EMSGSIZE);
@@ -777,7 +807,7 @@ struct PicoComms {
 			return (!Conf.ReadFailCount++) and SayEvent("CantRead: BufferFull");
 		
 		if (char* Data = (char*)malloc(L+sizeof(PicoMessage)); Data) {
-			Reading->Get(Data, L);
+			Reading->ReadInput(Data, L);
 			auto T = (PicoMessage*)(Data + L);
 			*T = {};
 			LengthBuff = 0;
@@ -1060,12 +1090,12 @@ extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, void* Obj=0, con
 	return M->StartThread(PicoNoiseEvents, Obj, fn, Args);
 ) 
 
-extern "C" int PicoStartFork (PicoComms* M) _pico_code_ (
+extern "C" int PicoStartFork (PicoComms* M, const char* Name=0) _pico_code_ (
 /// This will fork your app, and then connect the two apps with PicoMsg. Returns the result of `fork()`. So handle it just the same.
-	return M->StartFork(false);
+	return M->StartFork(Name, false);
 )
 
-extern "C" int PicoSimpleExec (PicoComms* M, const char** argv, bool NoMsgs=false, int NoStdOut=2, int NoStdErr=2) _pico_code_ (
+extern "C" int PicoSimpleExec (PicoComms* M, const char* DebugName, const char** argv, bool NoMsgs=false, int NoStdOut=2, int NoStdErr=2) _pico_code_ (
 /// Will `exec` a new subprocess. Returns a child PID on success, otherwise returns `-errno`.
 /// The `PicoComms` passed can get `stderr`, `stdout` and `PicoMsg` connected.
 /// Thats up to 3 pipes that *can* be made. Each can be disabled.
@@ -1074,13 +1104,13 @@ extern "C" int PicoSimpleExec (PicoComms* M, const char** argv, bool NoMsgs=fals
 	/// 1) Closes the pipe. We don't get it. No one gets it. It just disappears.
 	/// 2) PassThru of piped data. If the child prints to `stdout`, it appears as our `stdout`. (Done via pipe setup. We don't touch the data.)
 /// `NoMsgs` is similar, except that its either 1 or 0. Passthru is not available. 
-	return M->SimpleExec(NoMsgs, NoStdOut, NoStdErr, argv);
+	return M->SimpleExec(DebugName, NoMsgs, NoStdOut, NoStdErr, argv);
 )
 
 
-extern "C" int PicoStartExec (PicoComms* M, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) _pico_code_ (
+extern "C" int PicoStartExec (PicoComms* M, const char* DebugName, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) _pico_code_ (
 /// Similar to `PicoSimpleExec()`, but doesn't call `exec()` after `fork()`. This allows your child process to do final setup before you call `exec()` yourself. 
-	return M->StartExec(NoMsgs, NoStdOut, NoStdErr);
+	return M->StartExec(DebugName, NoMsgs, NoStdOut, NoStdErr);
 ) ;;;/*_*/;;; // 🕷️_🕷️	
 
 extern "C" bool PicoRestoreExec (PicoComms* M) _pico_code_ (

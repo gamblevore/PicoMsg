@@ -1,11 +1,13 @@
 
 #define PICO_IMPLEMENTATION
+#define PICO_LOG "/tmp/PicoTest"
+
 #include "PicoMsg.h"
-#include <unistd.h>
 #include <vector>
+using std::vector;
 #include <iostream>
 #include <bitset>
-using std::vector;
+
 
 std::atomic_int FinishedBash;
 
@@ -306,7 +308,7 @@ bool GetAndSayExec (PicoComms* M, float t, int i) {
 
 int TestExec (PicoComms* C, const char* self) {
 	const char* Args[3] = {self, "exec", 0};
-	int PID = PicoSimpleExec(C, Args);
+	int PID = PicoSimpleExec(C, "Child", Args);
 	if (PID < 0) return -PID;
 
 	char Data[20] = {'a', 'b', 'c'};
@@ -316,10 +318,12 @@ int TestExec (PicoComms* C, const char* self) {
 		M.Length = C->TextNumber(i+1, Data+3)+4;
 		if (PicoSend(C, M.Data, M.Length))
 			PicoSay(C, "Sent", Data);
-		Back += GetAndSayExec(C, 0.0, Back);
+		if (GetAndSayExec(C, 0.0, Back))
+			Back++;
 	}
 	pico_sleep(1.0);
-	while (GetAndSayExec(C, 1.0, Back)) {Back++;}
+	while (GetAndSayExec(C, 1.0, Back))
+		Back++;
 	
 	PicoSay(C, "Total", "", Back);
 	return 0;
@@ -328,16 +332,15 @@ int TestExec (PicoComms* C, const char* self) {
 
 int TestExec2 (PicoComms* C) {
 	if (!PicoRestoreExec(C)) return -1;
-	while (auto M = PicoGetCpp(C, 1)) {
-		if (!M)
-			return 0;
+	while (auto M = PicoGetCpp(C, 10)) {
 		PicoSay(C, "Got", M.Data);
 		for (int i = 0; i < M.Length-1; i++) {
 			auto ch = M.Data[i];
 			if (ch < '0' or ch > '9')
 				M.Data[i]++;
 		}
-		PicoSend(C, M.Data, M.Length);
+		while (!PicoSend(C, M.Data, M.Length, PicoSendCanTimeOut));
+		PicoSay(C, "Sent", M.Data);
 	}
 	return 0;
 }
