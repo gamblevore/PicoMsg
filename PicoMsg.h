@@ -500,13 +500,17 @@ struct PicoComms {
 		}
 		
 		PicoInit();
-		StdOut = PicoBuff::New(18, "stdout", this, Out[0]);
-		StdErr = PicoBuff::New(16, "stderr", this, Err[0]);
-		PID = ChildID;
 		close(Out[1]);
+		StdOut = PicoBuff::New(18, "stdout", this, Out[0]);
+		PartClosed &= 15;
+		if (StdOut)
+			PartClosed &=~ 4;
 		close(Err[1]);
+		StdErr = PicoBuff::New(16, "stderr", this, Err[0]);
+		if (StdErr)
+			PartClosed &=~ 8;
+		PID = ChildID;
 		mark_started();
-		PartClosed &=~ (8+4);
 		return PID;
 	}
 
@@ -633,7 +637,7 @@ struct PicoComms {
 		if (B) {
 			int L = B->Length();
 			if (L > 0) {
-				char* Dest = !Fn ? (Fn)(Obj, L) : (char*)malloc(L);
+				char* Dest = Fn ? (Fn)(Obj, L) : (char*)malloc(L);
 				if (Dest) {
 					B->ReadInput(Dest, L);
 					return {Dest, L};
@@ -748,10 +752,10 @@ struct PicoComms {
 		if (S >= 0) while ( auto Msg = B->AskUnused() ) {
 			int Amount = 0;
 			if (S > 0)
-				Amount = (int)read(Socket, Msg.Data, Msg.Length);
+				Amount = (int)read(S, Msg.Data, Msg.Length);
 			  else // maybe nicer to avoid sockets and just use pipes. Simpler and more flexible.
 			       // and can still use sockets.
-				Amount = (int)recv(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+				Amount = (int)recv(S, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount <= 0) {
 				if (!io_pass(Amount, 2)) break;
 				continue;
@@ -942,9 +946,8 @@ struct PicoComms {
 		int P = PartClosed;
 		if (!Error) {
 			P |= Part;
-//			puts("!!!!1!!!!!"); // just checking for how many closes there are.
 			PartClosed = P;
-			return ((P & 3) == 3) and failed(EPIPE, Part);
+			return ((P & 15) == 15) and failed(EPIPE, Part);
 		}
 		int e = errno;
 						;;;/*_*/;;;
@@ -985,12 +988,14 @@ struct PicoComms {
 	
 	;;;/*_*/;;;
 	void io () {
-		if (!Socket or !guard_ok()) return;
+		int P = PartClosed;
+		if (((P&15) == 15) or !guard_ok())
+			return;
 		InUse++;
 		do_reading();
 		do_sending();
-		int P = PartClosed;
-		if (P != 255 and (P&3) == 3) io_close();
+		P = PartClosed;
+		if (P != 255 and (PartClosed&15) == 15) io_close();
 		InUse--;
 	}
 };
@@ -1121,7 +1126,7 @@ extern "C" int PicoStartFork (PicoComms* M, const char* Name=nullptr) _pico_code
 	return M->StartFork(Name, false);
 )
 
-extern "C" int PicoSimpleExec (PicoComms* M, const char* DebugName, const char** argv, bool NoMsgs=false, int NoStdOut=2, int NoStdErr=2) _pico_code_ (
+extern "C" int PicoExec (PicoComms* M, const char* DebugName, const char** argv, bool NoMsgs=false, int NoStdOut=2, int NoStdErr=2) _pico_code_ (
 /// Will `exec` a new subprocess. Returns a child PID on success, otherwise returns `-errno`.
 /// The `PicoComms` passed can get `stderr`, `stdout` and `PicoMsg` connected.
 /// Thats up to 3 pipes that *can* be made. Each can be disabled.
@@ -1134,7 +1139,14 @@ extern "C" int PicoSimpleExec (PicoComms* M, const char* DebugName, const char**
 )
 
 
-extern "C" int PicoStartExec (PicoComms* M, const char* DebugName, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) _pico_code_ (
+extern "C" int PicoShellExec (PicoComms* M, const char* DebugName, const char** argv) _pico_code_ (
+/// Similar to `PicoExec()` except that is is configured to be useful for capturing all the output of a shell app.
+/// So its just a helper function really. 
+	return M->SimpleExec(DebugName, true, 0, 0, argv);
+)
+
+
+extern "C" int PicoPartialExec (PicoComms* M, const char* DebugName, bool NoMsgs=false, int NoStdOut=1, int NoStdErr=1) _pico_code_ (
 /// Similar to `PicoSimpleExec()`, but doesn't call `exec()` after `fork()`. This allows your child process to do final setup before you call `exec()` yourself. 
 	return M->StartExec(DebugName, NoMsgs, NoStdOut, NoStdErr);
 ) ;;;/*_*/;;; // 🕷️_🕷️	
@@ -1225,6 +1237,7 @@ extern "C" bool PicoInit () _pico_code_ (
 /// Starts the PicoMsg worker threads. The number of threads created is set via `PicoDesiredThreadCount`.
 	if (pico_initialised)
 		return true;
+	
 	pico_initialised = true;
 	atexit(pico_keep_sending);
 
@@ -1235,7 +1248,6 @@ extern "C" bool PicoInit () _pico_code_ (
 	for (int i = pico_thread_count; i < N; i++)
 		if (pthread_create(&T, nullptr, (void*(*)(void*))pico_worker, nullptr) or pthread_detach(T))
 			return false;
-	printf("%i threads\n", N);
 
 	return true;
 )    ;;;/*_*/;;;  ;;;/*_*/;;;     ;;;/*_*/;;;   // the final spiders

@@ -311,7 +311,7 @@ int TestExec (PicoComms* C, const char* self) {
 	strcpy(C->Conf.Name, "ExecParent");
 
 	const char* Args[3] = {self, "exec", 0};
-	int PID = PicoSimpleExec(C, "Child", Args);
+	int PID = PicoExec(C, "Child", Args);
 	if (PID < 0) return -PID;
 
 	char Data[20] = {'a', 'b', 'c'};
@@ -350,7 +350,7 @@ int TestExec2 (PicoComms* C) {
 }
 
 
-int TestPipeChild (int fd) {
+int TestPipeChild () {
 	for (int i = 0; i < 1000; i++) {
 		pico_sleep(0.001);
 		printf("ABCDEFGH: %i\n", i+1);
@@ -359,12 +359,28 @@ int TestPipeChild (int fd) {
 }
 
 
-int TestPipe (PicoComms* C) {
-	/// Uses pico to read `stdout` of a subprocess.
-	/// Avoids using `read()` directly, which has issues (in my experience)
-	/// `read()` suffers unavoidable lag, meaning it single-threaded for real-time situations
-	/// This can be adapted to read `stderr`. You would need one PicoComm for each.
+int TestPipe (PicoComms* C, const char* self) {
+	/// Uses pico to read `stdout` of a subprocess. (`stderr` is similar)
+	/// using `read()` on the main thread causes lag. But Pico is threaded, so it doesn't have that issue.
+	strcpy(C->Conf.Name, "PipeParent");
+	puts(self);
+	const char* Args[3] = {self, "pipe", 0};
+	int PID = PicoShellExec(C, "pipe", Args);
+	if (PID < 0) return -1;
 
+	while (true) {
+		auto Piece = PicoStdOut(C);
+		if (!Piece) {
+			sleep(1); sleep(1); sleep(1); sleep(1);
+			Piece = PicoStdOut(C);
+			if (!Piece) {
+				puts("No more input");
+				return 0;
+			}
+		}
+		puts(Piece.Data);
+		pico_sleep(1.0);
+	}
 	return 0;
 }
 
@@ -372,9 +388,12 @@ int TestPipe (PicoComms* C) {
 int main (int argc, const char * argv[]) {
 	const char* S = argv[1];
 	if (!S) S = "1";
-	int rz = 0;
+	if (strcmp(S, "pipe")==0)
+		return TestPipeChild();	
+	
 	auto C = PicoCreate(S);
 	C->Say("Starting Test: ");
+	int rz = 0;
 	if (strcmp(S, "1")==0)
 		rz = TestFork(C);
 	  else if (strcmp(S, "2")==0)
@@ -386,7 +405,7 @@ int main (int argc, const char * argv[]) {
 	  else if (strcmp(S, "4")==0)
 		rz = ThreadBash(C);
 	  else if (strcmp(S, "5")==0)
-		rz = TestPipe(C);
+		rz = TestPipe(C, argv[0]);
 	  else
 		rz = TestThread(C);
 	PicoDestroy(C, "Finished");
