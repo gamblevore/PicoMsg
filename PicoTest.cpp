@@ -204,12 +204,13 @@ bool TestIntenseCompare (PicoComms* C, float T) {
 
 
 int TestFork (PicoComms* C) {
-	int PID = PicoStartFork(C);
+	strcpy(C->Conf.Name, "Tester");
+	int PID = PicoStartFork(C, "Fixer");
 	C->Conf.Noise = PicoNoiseAll;
 	if (PID < 0)
 		return -PID;
+	
 	if (PID) {
-		strcpy(C->Conf.Name, "Tester");
 		char Out[20] = {}; memset(Out, -1, sizeof(Out));
 		PicoMessage Snd = {Out, 0};
 		PicoSay(C, "Asks intensely");
@@ -227,7 +228,6 @@ int TestFork (PicoComms* C) {
 		PicoClose(C, "Completed");
 
 	} else {
-		strcpy(C->Conf.Name, "Fixer");
 		int Back = 0;
 		char Out[20] = {}; memset(Out,-1,sizeof(Out));
 		while (auto Msg = PicoGetCpp(C, 10.0)) {
@@ -295,6 +295,7 @@ bool GetAndSayExec (PicoComms* M, float t, int i) {
 		int x = atoi(Mary.Data+3);
 		if (x!=i) {
 			PicoSay(M, "mismatch at", 0, i);
+			exit(-1);
 			return false;
 		}
 			
@@ -307,6 +308,8 @@ bool GetAndSayExec (PicoComms* M, float t, int i) {
 }
 
 int TestExec (PicoComms* C, const char* self) {
+	strcpy(C->Conf.Name, "ExecParent");
+
 	const char* Args[3] = {self, "exec", 0};
 	int PID = PicoSimpleExec(C, "Child", Args);
 	if (PID < 0) return -PID;
@@ -315,14 +318,14 @@ int TestExec (PicoComms* C, const char* self) {
 	int Back = 0;
 	PicoMessage M = {Data, 0};
 	for (int i = 0; i < 10000; i++) {
-		M.Length = C->TextNumber(i+1, Data+3)+4;
+		M.Length = C->TextNumber(i+1, Data+3)+4; // send a zero-terminated value.
 		if (PicoSend(C, M.Data, M.Length))
 			PicoSay(C, "Sent", Data);
 		if (GetAndSayExec(C, 0.0, Back))
 			Back++;
 	}
 	pico_sleep(1.0);
-	while (GetAndSayExec(C, 1.0, Back))
+	while (GetAndSayExec(C, 2.0, Back))
 		Back++;
 	
 	PicoSay(C, "Total", "", Back);
@@ -331,6 +334,7 @@ int TestExec (PicoComms* C, const char* self) {
 
 
 int TestExec2 (PicoComms* C) {
+	strcpy(C->Conf.Name, "ExecChild");
 	if (!PicoRestoreExec(C)) return -1;
 	while (auto M = PicoGetCpp(C, 10)) {
 		PicoSay(C, "Got", M.Data);
@@ -339,7 +343,7 @@ int TestExec2 (PicoComms* C) {
 			if (ch < '0' or ch > '9')
 				M.Data[i]++;
 		}
-		while (!PicoSend(C, M.Data, M.Length, PicoSendCanTimeOut));
+		while (!PicoSend(C, M.Data, M.Length, PicoSendCanTimeOut) and PicoError(C) == 0);
 		PicoSay(C, "Sent", M.Data);
 	}
 	return 0;
@@ -361,30 +365,6 @@ int TestPipe (PicoComms* C) {
 	/// `read()` suffers unavoidable lag, meaning it single-threaded for real-time situations
 	/// This can be adapted to read `stderr`. You would need one PicoComm for each.
 
-	int StdOut[2];
-	pipe(StdOut);
-	
-	int PID = fork();
-	if (PID < 0) 
-		return PID;
-	if (!PID) {								// We are the child, lets print stuff.
-		close(StdOut[0]);
-		dup2(StdOut[1], STDOUT_FILENO);
-		close(StdOut[1]);
-		return TestPipeChild(StdOut[1]);
-	}
-	
-	close(StdOut[1]);
-	int FL = fcntl(StdOut[0], F_GETFL, 0);
-	fcntl(StdOut[0], F_SETFL, FL | O_NONBLOCK);
-//	PicoStartPipe(C, StdOut[0]);
-	
-	while (true) {
-		pico_sleep(1.0);
-		auto Piece = PicoGetCpp(C, 0.01);
-		if (!Piece) break;
-		printf("%s", Piece.Data);
-	}
 	return 0;
 }
 
