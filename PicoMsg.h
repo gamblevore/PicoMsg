@@ -385,9 +385,9 @@ struct PicoComms {
 	unsigned char				ID;
 	PicoTrousers				SendLock;
 	PicoTrousers				ReadLock;
+	PicoTrousers				QueueLocker;
 	std::atomic_char			InUse;
 	int							Socket;
-	PicoTrousers				QueueLocker;
 	int							LengthBuff;
 	PicoMessage					QueueHead;
 	PicoMessage*				QueueTail;
@@ -401,7 +401,7 @@ struct PicoComms {
 	static PicoComms* New (PicoComms* M, int noise, bool isparent, int size, const char* name, int iD) {
 		M = (PicoComms*)calloc(1, sizeof(PicoComms));
 		// could be better to allocate 64*sizeof(PicoComms)?
-		// that way... nothing ever needs to move. Also caches better.
+		// that way... nothing ever needs to move. Also caches better. Can remove guards too.
 		return M->Init(noise, isparent, size, name, iD);
 	}
 	
@@ -411,7 +411,7 @@ struct PicoComms {
 		FinalGuard = 0xF00DCA4E;
 		PartClosed = 255;
 		SocketStatus = 255;
-		PIDStatus = EINPROGRESS;
+		PIDStatus = -EINPROGRESS;
 		QueueTail = &QueueHead;
 		Conf.Noise = noise;
 		Conf.SendTimeOut = 10.0f; // 🕷️_🕷️
@@ -716,7 +716,7 @@ struct PicoComms {
 		if (S) {
 			S->Status = T;
 			S->PID = PID;
-			S->StatusName = StatusName(-T);
+			S->StatusName = StatusName(T);
 		}
 		return T;
 	}
@@ -737,7 +737,7 @@ struct PicoComms {
 
 
 
-//// INTERNALS ////
+/// ** INTERNALS **
 	
 	bool guard_ok () {
 		if (Guard == 0xB00BE355 and FinalGuard==0xF00DCA4E) return true;
@@ -1006,13 +1006,13 @@ struct PicoComms {
 		if (waitpid(PID, &ExitCode, WNOHANG) <= 0)
 			;
 		  else if (WIFSIGNALED(ExitCode))
-			PIDStatus = -(WTERMSIG(ExitCode)|128);
+			PIDStatus = WTERMSIG(ExitCode)|128;
 		  else if (WIFEXITED(ExitCode))
-			PIDStatus = -(WEXITSTATUS(ExitCode));
+			PIDStatus = WEXITSTATUS(ExitCode);
 	}
 	
 	void cleanup (PicoDate CheckPID) {
-		if (CheckPID and PID)
+		if (CheckPID and PID and PIDStatus < 0)
 			check_exit_code();
 
 		if (Socket < 0 and !InUse and DestroyMe) {
@@ -1333,13 +1333,13 @@ extern "C" int PicoInfo (PicoComms* M, PicoProcStats* S=nullptr) _pico_code_ (
 	/// Pico has a unified system for status codes.
 	/// EG: After `PicoShellExec(M)`, then call `PicoInfo(M)` to find `M`'s status.
 	/// Result codes:
-	//  Negative:  A crash, or exited normally but with an error.
-	//  Positive:  The program is still running.
+	//  Positive:  A crash, or exited normally but with an error.
+	//  Negative:  The program is still running.
 	//  Zero	:  The program exited successfully.
 	
-	/// Negative numbers are either from errno, or signal numbers.
-	/// A negative number of -128 or below, is a signal.
-	/// You can check if the process is finished with:  `(PicoInfo(M, nullptr) <= 0)`
+	/// Positive numbers are either from errno, or signal numbers.
+	/// A number of 128 or more, is a signal.
+	/// You can check if the process is finished with:  `(PicoInfo(M, nullptr) >= 0)`
 	/// Get extra info by passing a `PicoProcStats` struct. Contains error names, and the PID. 
 	
 	/// Don't `free()` the `StatusName` field in `PicoProcStats`! Just let it be.

@@ -420,7 +420,7 @@ int TestChildren (PicoComms* C) {
 		sleep(1);
 		for (int i = 0; i < 10; i++) {
 			C = Ch[i];
-			if (C and PicoInfo(C, 0) <= 0) {	// Finished!
+			if (C and PicoInfo(C, 0) >= 0) {	// Finished!
 				PicoProcStats S; PicoInfo(C, &S);
 				printf("Process %i (%s) %s\n", C->PID, C->Conf.Name, S.StatusName);
 				auto Output = PicoStdOut(C);
