@@ -388,8 +388,23 @@ int TestPipe (PicoComms* C) {
 }
 
 
+int TheActualChild () {
+	PicoDate Now = PicoGetDate();
+	PicoDate Then = Now + ((Now&7)<<16); // up to 7 seconds extra
+	int i = 0;
+	int p = getpid();
+	while (PicoGetDate() < Then) {
+		i++;
+		printf("PID %i: %i\n", p, i);
+		sleep(1);
+	}
+	return Now&2;
+}
+
+
 int TestChildren (PicoComms* C) {
 	/// Shows how to use pico to manage subprocesses.
+	puts("------\nShould say 'No such file or directory' or 'successful'.\n'No such file or directory' just tests we can receive errors.\n------\n");
 	strcpy(C->Conf.Name, "ProcParent");
 	const char* Args[3] = {SelfPath, "children", 0};
 	PicoComms* Ch[10] = {};
@@ -398,23 +413,20 @@ int TestChildren (PicoComms* C) {
 	for (int i = 0; i < 10; i++) {
 		char Name[4] = {'c', 'h', (char)('0' + i), 0};
 		Ch[i] = PicoCreate(Name);
-		Alive += PicoShellExec(Ch[i], Name, Args) > 0;
+		Alive += PicoExec(Ch[i], Name, Args, true) > 0;
 	}
 	
 	while (Alive > 0) {
 		sleep(1);
 		for (int i = 0; i < 10; i++) {
 			C = Ch[i];
-			if (C) {
-				PicoProcStats S;
-				auto Result = PicoInfo(C, &S);
-				if (Result <= 0) {	// Finished!
-					printf("Process %i (%s) %s\n", C->PID, C->Conf.Name, S.StatusName);
-					auto Output = PicoStdOut(C);
-					puts(Output.Data);
-					Ch[i] = 0;
-					Alive--;
-				}
+			if (C and PicoInfo(C, 0) <= 0) {	// Finished!
+				PicoProcStats S; PicoInfo(C, &S);
+				printf("Process %i (%s) %s\n", C->PID, C->Conf.Name, S.StatusName);
+				auto Output = PicoStdOut(C);
+				if (Output) puts(Output.Data);
+				Ch[i] = 0;
+				Alive--;
 			}
 		}
 	}
@@ -432,8 +444,12 @@ int main (int argc, const char * argv[]) {
 	if (!S) S = "1";
 	if mode(pipe)
 		return TestPipeChild();	
+	if mode(children)
+		return TheActualChild();
 	
 	auto C = PicoCreate(S);
+	if mode(exec)
+		return TestExec2(C);
 	C->Say("Starting Test: ");
 	int rz = 0;
 	if mode(0)
@@ -444,8 +460,6 @@ int main (int argc, const char * argv[]) {
 		rz = TestPair(C);
 	  else if mode(3)
 		rz = TestExec(C);
-	  else if mode(exec)
-		return TestExec2(C);
 	  else if mode(4)
 		rz = ThreadBash(C);
 	  else if mode(5)

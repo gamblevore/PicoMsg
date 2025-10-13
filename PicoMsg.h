@@ -190,7 +190,6 @@ static	std::atomic_int			pico_thread_count;
 static	int						pico_timeout_count;
 static  std::atomic_int         pico_sock_open_count;
 static  PicoGlobalConfig		pico_global_conf;
-static  PicoDate				pico_last_activity;
 
 
 struct PicoLister {
@@ -299,7 +298,6 @@ struct PicoBuff {
 	}
 
 	void gained (int N) { 
-		pico_global_conf.LastActivity = PicoGetDate();
 		Head += N;
 	} ;;;/*_*/;;;
 	
@@ -354,7 +352,7 @@ struct PicoBuff {
 		if (Size - Length() >= MsgLen+PicoMsgInfo) {
 			send_sub((char*)&NetLen, PicoMsgInfo);
 			send_sub(Src, MsgLen);
-			return pico_last_activity = PicoGetDate();
+			return pico_global_conf.LastActivity = PicoGetDate();
 		}
 		return 0;
 	}
@@ -402,6 +400,8 @@ struct PicoComms {
 	
 	static PicoComms* New (PicoComms* M, int noise, bool isparent, int size, const char* name, int iD) {
 		M = (PicoComms*)calloc(1, sizeof(PicoComms));
+		// could be better to allocate 64*sizeof(PicoComms)?
+		// that way... nothing ever needs to move. Also caches better.
 		return M->Init(noise, isparent, size, name, iD);
 	}
 	
@@ -433,11 +433,6 @@ struct PicoComms {
 
 	void Destroy () { // destructor
 		if (!guard_ok()) return;
-		if  (Socket > 0) { // remove this later
-			Say("!!!!! ~Assumption failed~ !!!!!");
-			io_close(); // io will close it first.
-		}
-		
 		for (auto M = QueueHead; M.Data; M = pico_next_msg(M))
 			free(M.Data);
 		PicoBuff::Decr(Sending);
@@ -713,7 +708,7 @@ struct PicoComms {
 			return strsignal(T&~128);
 		if (T > 0)
 			return strerror(T);
-		return nullptr;
+		return "running";
 	}
 	
 	int Status (PicoProcStats* S) {
@@ -797,7 +792,7 @@ struct PicoComms {
 			pico_timeout_count = 0;			// reset
 			B->gained(Amount);
 			if (CanSayDebug()) Say("|recv|", "", Amount);
-			pico_last_activity = PicoGetDate();
+			pico_global_conf.LastActivity = PicoGetDate();
 		}
 	}
 	
@@ -1012,7 +1007,7 @@ struct PicoComms {
 			;
 		  else if (WIFSIGNALED(ExitCode))
 			PIDStatus = -(WTERMSIG(ExitCode)|128);
-		  else if (WIFSIGNALED(ExitCode))
+		  else if (WIFEXITED(ExitCode))
 			PIDStatus = -(WEXITSTATUS(ExitCode));
 	}
 	
@@ -1073,7 +1068,7 @@ static bool pico_try_exit () {
 		return pico_timeout_count = 0;
 	;;;/*_*/;;;
 
-	PicoDate MaxTime = pico_global_conf.TimeOut + pico_last_activity;
+	PicoDate MaxTime = pico_global_conf.TimeOut + pico_global_conf.LastActivity;
 	if (MaxTime >= D)
 		return pico_timeout_count = 0;
 
@@ -1082,7 +1077,7 @@ static bool pico_try_exit () {
 		return true; /// only happens if  `pico_global_conf.TimeOut > 0` 
 	;;;/*_*/;;;
 	
-	pico_last_activity += 64*1024*2.5; // 2.5 seconds of grace. 
+	pico_global_conf.LastActivity += 64*1024*2.5; // 2.5 seconds of grace. 
 	return false;
 }
 
@@ -1126,7 +1121,7 @@ static void* pico_worker (void* Dummy) {
 	pthread_setname_np(pthread_self(), PicoName);
 #endif 
 
-	if (p==1) while (true)
+	if (p!=1) while (true)
 		pico_work_comms();
 	
 	while (true) {
@@ -1151,7 +1146,7 @@ static int pico_init (int D) {
 		N += !(pthread_create(&T, nullptr, (void*(*)(void*))pico_worker, nullptr) or pthread_detach(T));
 	}
 
-	pico_last_activity = PicoGetDate();
+	pico_global_conf.LastActivity = PicoGetDate();
 	return N;
 }
 
