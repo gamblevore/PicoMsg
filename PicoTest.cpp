@@ -404,6 +404,7 @@ int TheActualChild () {
 
 int TestChildren (PicoComms* C) {
 	/// Shows how to use pico to manage subprocesses.
+	printf("%i  --> %i --> %fK\n", sizeof(PicoConfig), sizeof(PicoComms), (float)sizeof(pico_all)/1024.0);
 	puts("------\nShould say 'No such file or directory' or 'successful'.\n'No such file or directory' just tests we can receive errors.\n------\n");
 	strcpy(C->Conf.Name, "ProcParent");
 	const char* Args[3] = {SelfPath, "children", 0};
@@ -422,7 +423,7 @@ int TestChildren (PicoComms* C) {
 			C = Ch[i];
 			if (C and PicoInfo(C, 0) >= 0) {	// Finished!
 				PicoProcStats S; PicoInfo(C, &S);
-				printf("Process %i (%s) %s\n", C->PID, C->Conf.Name, S.StatusName);
+				printf("Process %i (%s) %s\n", S.PID, C->Conf.Name, S.StatusName);
 				auto Output = PicoStdOut(C);
 				if (Output) puts(Output.Data);
 				Ch[i] = 0;
@@ -450,6 +451,8 @@ int main (int argc, const char * argv[]) {
 	auto C = PicoCreate(S);
 	if mode(exec)
 		return TestExec2(C);
+	
+	puts(SelfPath); // to help me debug this from the terminal. xcode buries builds somewhere.
 	C->Say("Starting Test: ");
 	int rz = 0;
 	if mode(0)
