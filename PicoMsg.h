@@ -69,9 +69,8 @@ struct			PicoProcStats {
 
 struct PicoGlobalConfig {
 ///
-	PicoDate				TimeOut;
-/// Quits the app, if the app doesn't receive a "keep alive" signal for too long.
-/// Set TimeOut to zero, to remove the self-quit ability.
+	PicoDate				LastActivity;
+/// Useful data to check when the last activity was. Don't set this value yourself. Just read it.
 
 ///
 	PicoObserverFn			Observer;
@@ -79,12 +78,13 @@ struct PicoGlobalConfig {
 /// Return -1 to signify that you want to exit the program, and Pico will call exit() 
 
 ///
-	int						ExitCode;
-/// This is the exit code that will be used... if the we time out, or the parent dies.
+	PicoDate				TimeOut;
+/// Defaults to zero. If this is zero, this does nothing.
+/// Otherwise: Quits the app, if picomsg doesn't get any activity after `TimeOut` time. 
 
 ///
-	PicoDate				LastActivity;
-/// Useful data to check when the last activity was. Don't set this value yourself. Just read it.
+	int						ExitCode;
+/// This is the exit code that will be used... if the we time out.
 };
 
 
@@ -1125,10 +1125,12 @@ static void* pico_worker (void* Dummy) {
 		pico_work_comms();
 	
 	while (true) {
-		pico_work_comms(); pico_work_comms(); pico_work_comms();
+		pico_work_comms();
+		pico_work_comms();
+		pico_cleanup();
+		pico_work_comms();
 		if (pico_try_exit())
 			exit(pico_global_conf.ExitCode);
-		pico_cleanup();
 	}
 }
 
