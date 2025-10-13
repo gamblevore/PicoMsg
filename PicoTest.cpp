@@ -353,6 +353,8 @@ int TestExec2 (PicoComms* C) {
 int TestPipeChild () {
 	for (int i = 0; i < 1000; i++) {
 		pico_sleep(0.001);
+		if (!(i%32))
+			dprintf(STDERR_FILENO, "%i, ", i-1);
 		printf("ABCDEFGH: %i\n", i+1);
 	} 
 	return 0;
@@ -360,26 +362,26 @@ int TestPipeChild () {
 
 
 int TestPipe (PicoComms* C, const char* self) {
-	/// Uses pico to read `stdout` of a subprocess. (`stderr` is similar)
-	/// using `read()` on the main thread causes lag. But Pico is threaded, so it doesn't have that issue.
+	/// Uses pico to read `stdout` of a subprocess.
+	/// Using `read()` on the main thread causes lag. But Pico is threaded, so it doesn't have that issue.
 	strcpy(C->Conf.Name, "PipeParent");
-	puts(self);
 	const char* Args[3] = {self, "pipe", 0};
 	int PID = PicoShellExec(C, "pipe", Args);
 	if (PID < 0) return -1;
 
+	PicoDate TimeOut = PicoGetDate() + 5*64*1024;
 	while (true) {
 		auto Piece = PicoStdOut(C);
 		if (!Piece) {
-			sleep(1); sleep(1); sleep(1); sleep(1);
-			Piece = PicoStdOut(C);
-			if (!Piece) {
-				puts("No more input");
-				return 0;
-			}
+			if (PicoGetDate() < TimeOut) continue;
+			auto Errs = PicoStdErr(C);
+			if (Errs)
+				puts(Errs.Data);
+			puts("No more input");
+			return 0;
 		}
+		TimeOut = PicoGetDate() + 0.5*64*1024;
 		puts(Piece.Data);
-		pico_sleep(1.0);
 	}
 	return 0;
 }

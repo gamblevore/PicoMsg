@@ -374,7 +374,7 @@ struct PicoBuff {
 
 
 struct PicoComms {
-	volatile int				Guard;
+	int							Guard;
 	PicoConfig					Conf;
 	bool						IsParent;
 	unsigned char				SocketStatus; // info only
@@ -396,36 +396,37 @@ struct PicoComms {
 	PicoBuff*					Sending;
 	PicoBuff*					StdErr;
 	PicoBuff*					StdOut;
-	volatile int				FinalGuard;
+	int							FinalGuard;
 	public:
 	
-	PicoComms (int noise, bool isparent, int Size, const char* Name, int iD) { // constructor
+	PicoComms (int noise, bool isparent, int size, const char* name, int iD) { // constructor
 		memset(this, 0, sizeof(*this));
-		ID = iD-1; SocketStatus = -1; IsParent = isparent;
+		ID = iD-1; IsParent = isparent; Socket = -1;
 		Guard = 0xB00BE355;
 		FinalGuard = 0xF00DCA4E;
 		PartClosed = 255;
+		SocketStatus = 255;
 		QueueTail = &QueueHead;
 		Conf.Noise = noise;
 		Conf.SendTimeOut = 10.0f; // 🕷️_🕷️
 
-		if (Size<=0)
-			Size = PicoDefaultInitSize;
-		int B = 31 - __builtin_clz(Size);
+		if (size<=0)
+			size = PicoDefaultInitSize;
+		int B = 31 - __builtin_clz(size);
 		if (B < 8) B = 8;
 		if (B > 26) B = 26;
-		B += ((1<<B) < Size);
+		B += ((1<<B) < size);
 		Conf.Bits = B;
 		Conf.QueueSize = 1<<(B+3);
 				
-		if (!Name) Name = "";
-		strncpy(Conf.Name, Name, sizeof(Conf.Name)-1);
+		if (!name) name = "";
+		strncpy(Conf.Name, name, sizeof(Conf.Name)-1);
 		pico_list.AliveComms[ID] = this;
 	} ;;;/*_*/;;;
 
 	~PicoComms () { // destructor
 		if (!guard_ok()) return;
-		if  (Socket) { // remove this later
+		if  (Socket > 0) { // remove this later
 			Say("!!!!! ~Assumption failed~ !!!!!");
 			io_close(); // io will close it first.
 		}
@@ -499,16 +500,19 @@ struct PicoComms {
 			return 0;
 		}
 		
+		PartClosed &= 15;
 		PicoInit();
+		
 		close(Out[1]);
 		StdOut = PicoBuff::New(18, "stdout", this, Out[0]);
-		PartClosed &= 15;
 		if (StdOut)
 			PartClosed &=~ 4;
+		
 		close(Err[1]);
 		StdErr = PicoBuff::New(16, "stderr", this, Err[0]);
 		if (StdErr)
 			PartClosed &=~ 8;
+		
 		PID = ChildID;
 		mark_started();
 		return PID;
@@ -637,7 +641,7 @@ struct PicoComms {
 		if (B) {
 			int L = B->Length();
 			if (L > 0) {
-				char* Dest = Fn ? (Fn)(Obj, L) : (char*)malloc(L);
+				char* Dest = Fn ? (Fn)(Obj, L) : palloc(L);
 				if (Dest) {
 					B->ReadInput(Dest, L);
 					return {Dest, L};
@@ -816,7 +820,14 @@ struct PicoComms {
 		}
 		return false;
 	}
-
+	
+	static char* palloc (int n) {
+		char* Result = (char*)malloc(n+1);
+		if (Result)
+			Result[n] = 0;
+		return Result;
+	}
+	
 	bool acquire_msg () {
 		int L = LengthBuff;
 		if (!L) {
@@ -836,7 +847,7 @@ struct PicoComms {
 		if (Conf.QueueSize < QS)
 			return (!Conf.ReadFailCount++) and SayEvent("CantRead: BufferFull");
 		
-		if (char* Data = (char*)malloc(L+sizeof(PicoMessage)); Data) {
+		if (char* Data = palloc(L+sizeof(PicoMessage)); Data) {
 			Reading->ReadInput(Data, L);
 			auto T = (PicoMessage*)(Data + L);
 			*T = {};
@@ -893,7 +904,7 @@ struct PicoComms {
 	
 	bool add_msg_buffs (int Sock) {
 		if (int S = Socket; S > 0) { // currently open still.
-			Socket = 0;
+			Socket = -1;
 			close(S);
 			pico_sock_open_count--;
 		}
@@ -957,10 +968,10 @@ struct PicoComms {
 	}
 	
 	bool io_close() {
-		int S = Socket; if (!S) return false;
+		int S = Socket; if (S < 0) return false;
 		if (!ReadLock.enter()) return false;
 
-		Socket = 0;
+		Socket = -1;
 		if (S > 0) {
 			close(S);
 			pico_sock_open_count--;
@@ -973,7 +984,7 @@ struct PicoComms {
 	}
 
 	void cleanup () {
-		if (!Socket and !InUse and DestroyMe) {
+		if (Socket<0 and !InUse and DestroyMe) {
 			int I = ID;
 			auto Curr = pico_list.AliveComms[I];
 			if (Curr == this) {
@@ -988,14 +999,15 @@ struct PicoComms {
 	
 	;;;/*_*/;;;
 	void io () {
-		int P = PartClosed;
-		if (((P&15) == 15) or !guard_ok())
-			return;
+		if (!guard_ok()) return;
 		InUse++;
-		do_reading();
-		do_sending();
-		P = PartClosed;
-		if (P != 255 and (PartClosed&15) == 15) io_close();
+		int P = PartClosed;
+		if ((P&15) != 15) {
+			do_reading();
+			do_sending();
+		} else if (P != 255) {
+			io_close();
+		}
 		InUse--;
 	}
 };
@@ -1170,6 +1182,7 @@ extern "C" bool PicoSendStr (PicoComms* M, const char* Msg, bool Policy=PicoSend
 extern "C" void PicoGet (PicoComms* M, PicoMessage* Out, float Time=0) _pico_code_ (
 /// Gets a message if any exist. You can either return immediately if none are queued up, or wait for one to arrive.
 /// Once it returns a PicoMessage, you must `free()` it's `Data` property, after you are finished with it.
+/// This string is not zero-terminated.
 	;;;/*_*/;;;  // 🕷️_🕷️
 	*Out = M->Get(Time);
 )
@@ -1179,17 +1192,21 @@ extern "C" PicoMessage PicoGetCpp (PicoComms* M, float Time=0) _pico_code_ (
 	return M->Get(Time);
 );;;/*_*/;;;
 
-
-extern "C" PicoMessage PicoStdErr (PicoComms* M, PicoAppenderFn Alloc=nullptr, void* Obj=nullptr) {
-/// Reads the captured output of `stderr` (if any). Assumes you created this `PicoComms` via `PicoStartExec()`.
+extern "C" PicoMessage PicoStdOut (PicoComms* M, PicoAppenderFn Alloc=nullptr, void* Obj=nullptr) {
+/// Reads the captured output of `stdout` (if any). Assumes you created this `PicoComms` via `PicoStartExec()`.
 /// The data is returned via `malloc()`, unless you pass a non-zero value to `Alloc`.
 /// If you want to choose where the data is written to, then pass a function and object to the `Alloc` and `Obj` params.
-	return M->ReadStdErr(Alloc, Obj);
+
+/// if `PicoAppenderFn` is `null`, Pico will malloc 1 byte over the stated size of the `PicoMessage`, set to zero.
+/// You are told the correct number of bytes, its just that one byte was secretly allocated for the last null-byte.
+
+/// If you want the same behaviour with your own `PicoAppenderFn`, you have to do that in your `PicoAppenderFn`.
+	return M->ReadStdOut(Alloc, Obj);
 }
 
-extern "C" PicoMessage PicoStdOut (PicoComms* M, PicoAppenderFn Fn=nullptr, void* Obj=nullptr) {
-/// Same as `PicoStdErr()`, except it reads from `stdout`.
-	return M->ReadStdOut(Fn, Obj);
+extern "C" PicoMessage PicoStdErr (PicoComms* M, PicoAppenderFn Alloc=nullptr, void* Obj=nullptr) {
+/// Same as `PicoStdOut()`, except it reads from `stdout`.
+	return M->ReadStdErr(Alloc, Obj);
 }
 
 
