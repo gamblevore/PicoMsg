@@ -1259,7 +1259,7 @@ extern "C" PicoMessage PicoGetCpp (PicoComms* M, float Time=0) _pico_code_ (
 	return M->Get(Time);
 );;;/*_*/;;;
 
-extern "C" PicoMessage PicoStdOut (PicoComms* M, PicoAppenderFn Alloc=nullptr, void* Obj=nullptr) {
+extern "C" PicoMessage PicoStdOut (PicoComms* M, PicoAppenderFn Alloc=nullptr, void* Obj=nullptr) _pico_code_ (
 /// Reads the captured output of `stdout` (if any). Assumes you created this `PicoComms` via `PicoStartExec()`.
 /// The data is returned via `malloc()`, unless you pass a non-zero value to `Alloc`.
 /// If you want to choose where the data is written to, then pass a function and object to the `Alloc` and `Obj` params.
@@ -1269,12 +1269,12 @@ extern "C" PicoMessage PicoStdOut (PicoComms* M, PicoAppenderFn Alloc=nullptr, v
 
 /// If you want the same behaviour with your own `PicoAppenderFn`, you have to do that in yourself.
 	return M->ReadStdOut(Alloc, Obj);
-}
+)
 
-extern "C" PicoMessage PicoStdErr (PicoComms* M, PicoAppenderFn Alloc=nullptr, void* Obj=nullptr) {
+extern "C" PicoMessage PicoStdErr (PicoComms* M, PicoAppenderFn Alloc=nullptr, void* Obj=nullptr) _pico_code_ (
 /// Same as `PicoStdOut()`, except it reads from `stdout`.
 	return M->ReadStdErr(Alloc, Obj);
-}
+)
 
 
 ///
