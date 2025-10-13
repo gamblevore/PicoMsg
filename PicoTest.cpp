@@ -9,7 +9,9 @@ using std::vector;
 #include <bitset>
 
 
+extern char **environ;
 std::atomic_int FinishedBash;
+const char* SelfPath;
 
 static void* BasherThread (int T) {
 	int Remain = 1000;
@@ -257,8 +259,6 @@ int TestThread (PicoComms* C) {
 }
 
 
-extern char **environ;
-
 int ThreadBash (PicoComms* B) {
 	// Threadedly create/destroy a load of PicoComm*'s
 	const int ThreadCount = 4;
@@ -307,10 +307,11 @@ bool GetAndSayExec (PicoComms* M, float t, int i) {
 	return false;
 }
 
-int TestExec (PicoComms* C, const char* self) {
+
+int TestExec (PicoComms* C) {
 	strcpy(C->Conf.Name, "ExecParent");
 
-	const char* Args[3] = {self, "exec", 0};
+	const char* Args[3] = {SelfPath, "exec", 0};
 	int PID = PicoExec(C, "Child", Args);
 	if (PID < 0) return -PID;
 
@@ -361,11 +362,11 @@ int TestPipeChild () {
 }
 
 
-int TestPipe (PicoComms* C, const char* self) {
+int TestPipe (PicoComms* C) {
 	/// Uses pico to read `stdout` of a subprocess.
 	/// Using `read()` on the main thread causes lag. But Pico is threaded, so it doesn't have that issue.
 	strcpy(C->Conf.Name, "PipeParent");
-	const char* Args[3] = {self, "pipe", 0};
+	const char* Args[3] = {SelfPath, "pipe", 0};
 	int PID = PicoShellExec(C, "pipe", Args);
 	if (PID < 0) return -1;
 
@@ -373,9 +374,9 @@ int TestPipe (PicoComms* C, const char* self) {
 	while (true) {
 		auto Piece = PicoStdOut(C);
 		if (!Piece) {
-			if (PicoGetDate() < TimeOut) continue;
-			auto Errs = PicoStdErr(C);
-			if (Errs)
+			if (PicoGetDate() < TimeOut)
+				continue;
+			if (auto Errs = PicoStdErr(C); Errs)
 				puts(Errs.Data);
 			puts("No more input");
 			return 0;
@@ -387,29 +388,72 @@ int TestPipe (PicoComms* C, const char* self) {
 }
 
 
+int TestChildren (PicoComms* C) {
+	/// Shows how to use pico to manage subprocesses.
+	strcpy(C->Conf.Name, "ProcParent");
+	const char* Args[3] = {SelfPath, "children", 0};
+	PicoComms* Ch[10] = {};
+	
+	int Alive = 0;
+	for (int i = 0; i < 10; i++) {
+		char Name[4] = {'c', 'h', (char)('0' + i), 0};
+		Ch[i] = PicoCreate(Name);
+		Alive += PicoShellExec(Ch[i], Name, Args) > 0;
+	}
+	
+	while (Alive > 0) {
+		sleep(1);
+		for (int i = 0; i < 10; i++) {
+			C = Ch[i];
+			if (C) {
+				PicoProcStats S;
+				auto Result = PicoInfo(C, &S);
+				if (Result <= 0) {	// Finished!
+					printf("Process %i (%s) %s\n", C->PID, C->Conf.Name, S.StatusName);
+					auto Output = PicoStdOut(C);
+					puts(Output.Data);
+					Ch[i] = 0;
+					Alive--;
+				}
+			}
+		}
+	}
+	
+	puts("All processes completed");
+	return 0;
+}
+
+
+
+#define mode(b) (strcmp(S, #b)==0)
 int main (int argc, const char * argv[]) {
 	const char* S = argv[1];
+	SelfPath = argv[0];
 	if (!S) S = "1";
-	if (strcmp(S, "pipe")==0)
+	if mode(pipe)
 		return TestPipeChild();	
 	
 	auto C = PicoCreate(S);
 	C->Say("Starting Test: ");
 	int rz = 0;
-	if (strcmp(S, "1")==0)
-		rz = TestFork(C);
-	  else if (strcmp(S, "2")==0)
-		rz = TestPair(C);
-	  else if (strcmp(S, "3")==0)
-		rz = TestExec(C, argv[0]);
-	  else if (strcmp(S, "exec")==0)
-		return TestExec2(C);
-	  else if (strcmp(S, "4")==0)
-		rz = ThreadBash(C);
-	  else if (strcmp(S, "5")==0)
-		rz = TestPipe(C, argv[0]);
-	  else
+	if mode(0)
 		rz = TestThread(C);
+	  else if mode(1)
+		rz = TestFork(C);
+	  else if mode(2)
+		rz = TestPair(C);
+	  else if mode(3)
+		rz = TestExec(C);
+	  else if mode(exec)
+		return TestExec2(C);
+	  else if mode(4)
+		rz = ThreadBash(C);
+	  else if mode(5)
+		rz = TestPipe(C);
+	  else if mode(6)
+		rz = TestChildren(C);
+	  else
+		rz = -1;
 	PicoDestroy(C, "Finished");
 	return rz;
 }
