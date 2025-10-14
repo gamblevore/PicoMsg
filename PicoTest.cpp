@@ -12,9 +12,39 @@ using std::vector;
 extern char **environ;
 std::atomic_int FinishedBash;
 const char* SelfPath;
+bool AllSleep;
 
-static void* BasherThread (int T) {
-	int Remain = 1000;
+
+static void* BashReserve (int T) {
+	int Remain = 5000;
+ 	int P = 0;
+	
+	while (Remain > 0) {
+		if (!P) {
+			P = pico_list.Reserve();
+			continue;
+		}
+		auto P2 = pico_list.Reserve();
+		if (P2) {
+			Remain--;
+			timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
+			pico_list.Remove(P2-1);
+			pico_list.Remove(P-1);
+			P = 0;
+			P2 = 0;
+			if ((Remain % 32 == 0) or AllSleep) {
+				puts("Sleeping...");
+				sleep(5);
+			}
+		}
+	}
+	FinishedBash++;
+	return 0;
+}
+
+
+static void* BashCreation (int T) {
+	int Remain = 5000;
  	PicoComms* P = 0;
 	
 	while (Remain > 0) {
@@ -28,12 +58,14 @@ static void* BasherThread (int T) {
 			strcpy(P2->Conf.Name, "Second");
 			Remain--;
 			P2->Conf.Noise = 0;
-			timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
+			if ((Remain & 8) == 0) {
+				timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
+			}
 			P = PicoDestroy(P);
 			P2 = PicoDestroy(P2);
-			if (Remain % 256 == 0) {
+			if ((Remain % 32 == 0) or AllSleep) {
 				puts("Sleeping...");
-				sleep(5);
+				sleep(1);
 			}
 		}
 	}
@@ -259,18 +291,20 @@ int TestThread (PicoComms* C) {
 }
 
 
-int ThreadBash (PicoComms* B) {
+int ThreadBash (PicoComms* B, void* Fn) {
 	// Threadedly create/destroy a load of PicoComm*'s
 	const int ThreadCount = 4;
 
 	pthread_t T = 0;
 	for (long i = 0; i < ThreadCount; i++)
-		if (pthread_create(&T, nullptr, (void*(*)(void*))BasherThread, (void*)i) or pthread_detach(T))
+		if (pthread_create(&T, nullptr, (void*(*)(void*))Fn, (void*)i) or pthread_detach(T))
 			return false;
 	
-	while (true) {
+	
+	for (int i = 1; true; i++) {
+		AllSleep = (i&32)==0;
 		bool WillExit = FinishedBash >= ThreadCount;
-		int SockO = pico_sock_open_count;
+		int SockO = pico_open_sockets;
 		uint64_t Map = pico_list.Map;
 		printf("pico open sockets: %i", SockO);
 		std::cout << ",  Map: " << std::bitset<64>(Map) << std::endl;
@@ -464,7 +498,9 @@ int main (int argc, const char * argv[]) {
 	  else if mode(3)
 		rz = TestExec(C);
 	  else if mode(4)
-		rz = ThreadBash(C);
+		rz = ThreadBash(C, (void*)BashCreation);
+	  else if mode(41)
+		rz = ThreadBash(C, (void*)BashReserve);
 	  else if mode(5)
 		rz = TestPipe(C);
 	  else if mode(6)
