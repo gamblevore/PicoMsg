@@ -121,16 +121,9 @@ struct PicoTrousers { // only one person can wear them at a time.
 	PicoTrousers  () {Value = false;}
 	bool enter () {
 		bool Expected = false;
-		if (!Value.compare_exchange_strong(Expected, true))
-			return false;
-		if (!Value)
-			Value = 0;
-		return true;
-			
+		return Value.compare_exchange_strong(Expected, true);
 	}
 	void unlock () {
-		if (Value == false)
-			Value = 0;
 		Value = false;
 	}
 	void lock () {
@@ -748,8 +741,8 @@ struct PicoComms : PicoCommsData {
 	
 	void AskDestroy (const char* Why) {
 		AskClose(Why);
-		if (!DestroyMe)
-			DestroyMe = 1;
+		//if (!DestroyMe)
+		DestroyMe = 1;
 	}
 
 
@@ -1050,25 +1043,7 @@ struct PicoComms : PicoCommsData {
 	void io () {
 		int i = InUse++;
 		if (i == 0 and !DestroyMe) {
-			int P = PartClosed;
-			// why is this zero?
-			// ok, so its not in use. but its also not existing
-			// so why is it on the list?
-			// by the time we collected the list... really... they should all be "inuse"
-			// but we can't do that. we just get the data. dont modify it.
-			// perhaps inuse and inlist should be a 64-bit map?
-			// so the problem is... we collected a list, then removed something from the list?
-			// hmmmm... well... the list and the inlist should be the same.
-			// but we are free to destroy an item while reading the list.
-			// which is not fun.
-			// once we make the list... we should incr each before altering it.
-			// again... we don't have that ability.
-			
-			// we could just refer to the global list each time. instead of a "todo list"
-			// we have a "done-list"?
-			
-			// that narrows it down, but we still need to lock stuff.
-			
+			int P = PartClosed;			
 			if ((P&15) != 15) {
 				do_reading();
 				do_sending();
