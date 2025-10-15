@@ -84,13 +84,13 @@ struct 			PicoConfig  {
 	unsigned short		DeathCount;		/// How many times the subprocess died.
 	unsigned short		SendFailCount;	/// How many times sending failed.
 	unsigned short		ReadFailCount;	/// How many times reading failed.
+	short				PIDStatus;		/// The exit-status of the sub-process (if any).
 	unsigned char		Noise;			/// How much information PicoMsg prints. From `PicoSilent` to `PicoNoiseAll`
 	unsigned char		SendTimeOut;	/// The number of seconds before a send will timeout (if the send is not instant)
-	short				PIDStatus;
-	unsigned char		SocketStatus;
 	bool				LeaveOrphaned;	/// If this is true, the child-process will not be killed by `PicoKill()`
 	unsigned char		Bits; 	
 #ifdef PICO_IMPLEMENTATION
+	unsigned char		SocketStatus;
 	bool				IsParent;
 	unsigned char		PartClosed;
 	PicoTrousers		SendLock;
@@ -99,15 +99,15 @@ struct 			PicoConfig  {
 	std::atomic_char	DestroyMe;
 	PicoTrousers		InUse;
 	unsigned char		ID;
+	int					Socket;
+	int					LengthBuff;
+	int					PID;
 	PicoBuff*			Reading;
 	PicoBuff*			Sending;
 	PicoBuff*			StdErr;
 	PicoBuff*			StdOut;
 	PicoMessage*		QueueTail;
 	PicoMessage			QueueHead;
-	int					Socket;
-	int					LengthBuff;
-	int					PID;
 #endif
 };
 
