@@ -465,13 +465,10 @@ struct PicoComms : PicoConfig {
 
 	/// **Class Initialisation Helpers**
 	bool MiniPipe (int Pipe[2], int Mode, int Std) {
-		if (Mode >= 1) {
-			if (Mode == 1) 
-				close(Std);
+		if (Mode >= 1)
 			return true;
-		}
 
-		if (int P = pipe(Pipe); P)
+		if (pipe(Pipe))
 			return failed();
 		unblock(Pipe[0]);
 		return true;
@@ -516,6 +513,10 @@ struct PicoComms : PicoConfig {
 		
 		IsParent = ChildID;
 		if (!IsParent) {
+			if (NoStdOut == 1) 
+				close(STDOUT_FILENO);
+			if (NoStdErr == 1) 
+				close(STDERR_FILENO);
 			pico_thread_count = 0;
 			ChildClosePipes(Out, STDOUT_FILENO);
 			ChildClosePipes(Err, STDERR_FILENO);
