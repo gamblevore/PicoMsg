@@ -18,7 +18,7 @@ PicoMsg uses a worker thread behind the scenes, to read and write. PicoMsg will 
 
 PicoMsg is almost always non-blocking. The default buffer sizes are: Send=1MB, Receive=1MB. The received message queue is allocated with malloc, and maxes at 8MB unread messages. If your program is busy sending a lot of data, it probably won't block.
 
-Pico uses one (or more if you like) threads slurping up all your data. To increase the thread count, set pico_global_conf.DesiredThreadCount to your desired amount, before calling any Pico functions.
+Pico uses one (or more if you like) threads slurping up all your data. To set the thread count, call `PicoInit(N)` to your desired amount, before calling any Pico functions. _(Pico limits the thread count from 1 to 6.)_
 
 One thing to remember, is that you can't send messages bigger than your buffers. That limits us to 1MB-4 bytes per message, by default. PicoMsg will send and get multiple messages per read/send event, if multiple are available.
 
@@ -56,6 +56,10 @@ PicoMsg also has some util functions. These functions are not always needed, but
 Other useful utils are: `PicoClose` (in case you want to close the comms from multiple points in your app), `PicoStillSending` (in case you want to give your app a chance to still send more data.), `PicoSay` is very informative and can help debug things.
 
 `PicoConfig` is useful to configure things about PicoMsg, such as the timeout-value, maximum unread-message queue size, and some variables used to improve (or disable) error-reporting to stdout.
+
+...
+
+Pico also has some functions to manage sub-processes, like killing them, finding their exit-codes, and other things. All documentation is in `PicoMsg.h`
 
 [Sponsor PicoMsg if you want to support this software.](https://github.com/sponsors/gamblevore)
 
