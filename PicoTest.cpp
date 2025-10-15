@@ -52,12 +52,12 @@ static void* BashCreation (int T) {
 			P = PicoCreate("Basher2");
 			continue;
 		}
-		P->Conf.Noise = 0;
+		P->Noise = 0;
 		auto P2 = PicoStartChild(P);
 		if (P2) {
-			strcpy(P2->Conf.Name, "Second");
+			strcpy(P2->Name, "Second");
 			Remain--;
-			P2->Conf.Noise = 0;
+			P2->Noise = 0;
 			if ((Remain & 8) == 0) {
 				timespec ts = {0, 100*(T+1)}; nanosleep(&ts, 0);
 			}
@@ -85,7 +85,7 @@ uint hash (uint x) {
 
 void* ThreadQuery (void* TM) {
 	PicoComms* M = (PicoComms*)TM;
-	strcpy(M->Conf.Name, "Query");
+	strcpy(M->Name, "Query");
 	PicoSendStr(M, "mary had a little lamb");
 	const int Stack = 49; const int Pudge = 4096;
 	vector<char> abcd(Stack*Pudge);
@@ -156,7 +156,7 @@ bool GetAndSay (PicoComms* M, float t) {
 
 
 bool ThreadRespond (PicoComms* M) {
-	strcpy(M->Conf.Name, "ThreadRespond");
+	strcpy(M->Name, "ThreadRespond");
 	GetAndSay(M, 6.0);
 	
 	int n = 0;
@@ -182,8 +182,8 @@ bool ThreadRespond (PicoComms* M) {
 
 int TestPair (PicoComms* C) {
 	auto C2 = PicoStartChild(C);
-//	C2->Conf.Noise = -1;
-//	 C->Conf.Noise = -1;
+//	C2->Noise = -1;
+//	 C->Noise = -1;
 	
 	if (C2) {
 		PicoSendStr(C, "pear🍐🍐🍐test");
@@ -238,9 +238,9 @@ bool TestIntenseCompare (PicoComms* C, float T) {
 
 
 int TestFork (PicoComms* C) {
-	strcpy(C->Conf.Name, "Tester");
+	strcpy(C->Name, "Tester");
 	int PID = PicoStartFork(C, "Fixer");
-	C->Conf.Noise = PicoNoiseAll;
+	C->Noise = PicoNoiseAll;
 	if (PID < 0)
 		return -PID;
 	
@@ -286,7 +286,7 @@ int TestFork (PicoComms* C) {
 int TestThread (PicoComms* C) {
 	if (!PicoStartThread(C, (PicoThreadFn)ThreadRespond)) return -1;
 	ThreadQuery(C);
-	pico_sleep(1.0); // let ThreadRespond exit
+	PicoSleep(1.0); // let ThreadRespond exit
 	return 0;	
 }
 
@@ -309,7 +309,7 @@ int ThreadBash (PicoComms* B, void* Fn) {
 		printf("pico open sockets: %i", SockO);
 		std::cout << ",  Map: " << std::bitset<64>(Map) << std::endl;
 		if (WillExit) break;
-		pico_sleep(0.25);
+		PicoSleep(0.25);
 	}
 	
 	printf("Bashed %i threads!\n", ThreadCount);
@@ -343,7 +343,7 @@ bool GetAndSayExec (PicoComms* M, float t, int i) {
 
 
 int TestExec (PicoComms* C) {
-	strcpy(C->Conf.Name, "ExecParent");
+	strcpy(C->Name, "ExecParent");
 
 	const char* Args[3] = {SelfPath, "exec", 0};
 	int PID = PicoExec(C, "Child", Args);
@@ -359,7 +359,7 @@ int TestExec (PicoComms* C) {
 		if (GetAndSayExec(C, 0.0, Back))
 			Back++;
 	}
-	pico_sleep(1.0);
+	PicoSleep(1.0);
 	while (GetAndSayExec(C, 2.0, Back))
 		Back++;
 	
@@ -369,7 +369,7 @@ int TestExec (PicoComms* C) {
 
 
 int TestExec2 (PicoComms* C) {
-	strcpy(C->Conf.Name, "ExecChild");
+	strcpy(C->Name, "ExecChild");
 	if (!PicoRestoreExec(C)) return -1;
 	while (auto M = PicoGetCpp(C, 10)) {
 		PicoSay(C, "Got", M.Data);
@@ -387,7 +387,7 @@ int TestExec2 (PicoComms* C) {
 
 int TestPipeChild () {
 	for (int i = 0; i < 1000; i++) {
-		pico_sleep(0.001);
+		PicoSleep(0.001);
 		if (!(i%32))
 			dprintf(STDERR_FILENO, "%i, ", i-1);
 		printf("ABCDEFGH: %i\n", i+1);
@@ -396,10 +396,22 @@ int TestPipeChild () {
 }
 
 
+int TestWaiting () {
+	printf("Starting %i\n", getpid());
+	PicoDate TimeOut = PicoGetDate() + 5*64*1024;
+	while (PicoGetDate() < TimeOut) {
+		printf("TimeLeft %i: %.1f\n", getpid(), (float)(TimeOut - PicoGetDate())/(64*1024.0));
+		PicoSleep(1);
+	}
+	printf("Exiting %i\n", getpid());
+	return 0;
+}
+
+
 int TestPipe (PicoComms* C) {
 	/// Uses pico to read `stdout` of a subprocess.
 	/// Using `read()` on the main thread causes lag. But Pico is threaded, so it doesn't have that issue.
-	strcpy(C->Conf.Name, "PipeParent");
+	strcpy(C->Name, "PipeParent");
 	const char* Args[3] = {SelfPath, "pipe", 0};
 	int PID = PicoShellExec(C, "pipe", Args);
 	if (PID < 0) return -1;
@@ -438,9 +450,8 @@ int TheActualChild () {
 
 int TestChildren (PicoComms* C) {
 	/// Shows how to use pico to manage subprocesses.
-	printf("%i  --> %i --> %fK\n", sizeof(PicoConfig), sizeof(PicoComms), (float)sizeof(pico_all)/1024.0);
 	puts("------\nShould say 'No such file or directory' or 'successful'.\n'No such file or directory' just tests we can receive errors.\n------\n");
-	strcpy(C->Conf.Name, "ProcParent");
+	strcpy(C->Name, "ProcParent");
 	const char* Args[3] = {SelfPath, "children", 0};
 	PicoComms* Ch[10] = {};
 	
@@ -455,9 +466,9 @@ int TestChildren (PicoComms* C) {
 		sleep(1);
 		for (int i = 0; i < 10; i++) {
 			C = Ch[i];
-			if (C and PicoInfo(C, 0) >= 0) {	// Finished!
-				PicoProcStats S; PicoInfo(C, &S);
-				printf("Process %i (%s) %s\n", S.PID, C->Conf.Name, S.StatusName);
+			if (C and PicoStatus(C, 0) >= 0) {	// Finished!
+				PicoProcStats S; PicoStatus(C, &S);
+				printf("Process %i (%s) %s\n", S.PID, C->Name, S.StatusName);
 				auto Output = PicoStdOut(C);
 				if (Output) puts(Output.Data);
 				Ch[i] = 0;
@@ -467,6 +478,36 @@ int TestChildren (PicoComms* C) {
 	}
 	
 	puts("All processes completed");
+	return 0;
+}
+
+
+void DetectStatususus (PicoComms** Ch, int n) {
+	for (int i = 0; i < n; i++) {
+		PicoProcStats S;
+		PicoStatus(Ch[i], &S);
+		printf("%s is %s\n", Ch[i]->Name, S.StatusName);
+	}
+}
+
+int TestKill (PicoComms* C) {
+	PicoDestroy(C); // unneeded.
+	const char* Args[3] = {SelfPath, "wait", 0};
+	PicoComms* Ch[5] = {};
+
+	for (int i = 0; i < 5; i++) {
+		char Name[4] = {'c', 'h', (char)('0' + i), 0};
+		auto C = PicoCreate(Name);
+		Ch[i] = C;
+		PicoExec(C, Name, Args, true);
+	}
+
+	PicoKill(0);
+	DetectStatususus(Ch, 5);
+	puts("sleeping 5s");
+	PicoSleep(5);
+	DetectStatususus(Ch, 5);
+	puts("Exiting Parent");
 	return 0;
 }
 
@@ -481,12 +522,15 @@ int main (int argc, const char * argv[]) {
 		return TestPipeChild();	
 	if mode(children)
 		return TheActualChild();
+	if mode(wait)
+		return TestWaiting();
 	
 	auto C = PicoCreate(S);
 	if mode(exec)
 		return TestExec2(C);
 	
 	puts(SelfPath); // to help me debug this from the terminal. xcode buries builds somewhere.
+	printf("%i --> %.1fK\n", (int)sizeof(PicoComms), (float)sizeof(pico_all)/1024.0);
 	C->Say("Starting Test: ");
 	int rz = 0;
 	if mode(0)
@@ -505,6 +549,8 @@ int main (int argc, const char * argv[]) {
 		rz = TestPipe(C);
 	  else if mode(6)
 		rz = TestChildren(C);
+	  else if mode(7)
+		rz = TestKill(C);
 	  else
 		rz = -1;
 	PicoDestroy(C, "Finished");
