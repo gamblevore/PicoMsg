@@ -91,6 +91,7 @@ struct 			PicoConfig  {
 	unsigned char		Bits; 	
 	bool				IsParent;
 #ifdef PICO_IMPLEMENTATION
+	unsigned char		StateFlags;
 	unsigned char		SocketStatus;
 	unsigned char		PartClosed;
 	PicoTrousers		SendLock;
@@ -524,6 +525,7 @@ struct PicoComms : PicoConfig {
 		
 		IsParent = ChildID;
 		if (!IsParent) {
+			StateFlags|=1; // a forked child
 			if (NoStdOut == 1) 
 				close(STDOUT_FILENO);
 			if (NoStdErr == 1) 
@@ -551,7 +553,6 @@ struct PicoComms : PicoConfig {
 				PartClosed &=~ 8;
 		}
 		
-		PIDStatus = -1;
 		PID = ChildID;
 		mark_started();
 		return PID;
@@ -566,7 +567,8 @@ struct PicoComms : PicoConfig {
 		PicoComms* C = PicoComms::New(nullptr, Noise, false, 1<<Bits, "Thread", ChildID);
 		Sending->RefCount++;     Reading->RefCount++;  Socket = -1; 
 		C->Sending = Reading; C->Reading = Sending; C->Socket = -1;
-		
+		C->PartClosed = PartClosed;
+
 		mark_started();
 		C->mark_started();
 		return thread_run(C, fn, Self, Args);
@@ -597,13 +599,14 @@ struct PicoComms : PicoConfig {
 	pid_t StartFork (const char* ChildName, bool SaveSocket) {
 		int Socks[2] = {};
 		if (!get_pair_of(Socks)) return -1;
-		pid_t pid = fork();
-		if (pid < 0) return GiveUp(Socks);
+		pid_t childid = fork();
+		if (childid < 0) return GiveUp(Socks);
 
-		IsParent = pid!=0; // 🕷️_🕷️
+		IsParent = childid!=0; // 🕷️_🕷️
 		close(Socks[!IsParent]);
 		int S = Socks[IsParent];
 		if (!IsParent) {
+			StateFlags|=1; // a forked child
 			if (ChildName)
 				strncpy(Name, ChildName, sizeof(Name));
 			pico_thread_count = 0; // Forked process don't keep threads.
@@ -611,9 +614,9 @@ struct PicoComms : PicoConfig {
 				return StoreSock(S);
 		} 
 		
-		PID = pid;
+		PID = childid;
 		add_msg_buffs(S);
-		return pid; 
+		return PID; 
 	}
 	/// **End of  Initialisation**
 	
@@ -754,6 +757,8 @@ struct PicoComms : PicoConfig {
 			S->Status = T;
 			S->PID = PID;
 			S->StatusName = StatusName(T);
+			if (StateFlags&1)
+				S->PID = getppid();
 		}
 		return T;
 	}
@@ -792,6 +797,7 @@ struct PicoComms : PicoConfig {
 		D->C = C; D->fn = fn; D->Self = Self; D->Args = Args;
 		if (!pthread_create(&T, nullptr, pico_thread_wrapper, D) and !pthread_detach(T))
 			return true;
+		
 		C->AskDestroy("ThreadFailed");
 		free(D);
 		return false;
@@ -932,7 +938,7 @@ struct PicoComms : PicoConfig {
 		if (!Reading and !(Reading = PicoBuff::New(Bits, "Read", this, -1)))
 			return failed(ENOBUFS);
 		PartClosed &= ~3; // Open up sending and reading. Say they are "not closed".
-		PartClosed &= 15; // Close the other "fake" buffers, so its not 255 anymore.
+		PartClosed &= 15; // Make it not 255 anymore.
 		return PicoInit(0);
 	}
 
@@ -959,6 +965,7 @@ struct PicoComms : PicoConfig {
 
 	bool mark_started () {
 		SocketStatus = 0;
+		PIDStatus = -1;
 		if (CanSayDebug()) Say("Started");
 		return true;
 	}  ;;;/*_*/;;;   // creeping upwards!!
@@ -1036,29 +1043,32 @@ struct PicoComms : PicoConfig {
 	}								;;;/*_*/;;;
 
 	void check_exit_code () {
-		if (!PID or PIDStatus >= 0)
+		if (PIDStatus >= 0)
+			return;
+		if (!PID and !(StateFlags&1))
 			return;
 		
- 		int ExitCode = 0;
-		if (waitpid(PID, &ExitCode, WNOHANG) <= 0) {
-			if (PartClosed==15) {
-				errno = 0;
-				if (kill(PID,0)<0) // process closed. how did we miss this? did something ignore SIGCHLD?
-					PIDStatus = errno;
-			}
-			return;
-		}
-		if (WIFSIGNALED(ExitCode))
+		int ExitCode = 0;
+		if (!PID) {
+			if (getppid() <= 1)		// parent died.
+				PIDStatus = 0;		// unknown why. So lets say it ended nicely.
+
+		} else if (waitpid(PID, &ExitCode, WNOHANG) <= 0) {
+			if (PartClosed!=15) return;
+			errno = 0;
+			if (kill(PID, 0)>=0) return;
+			PIDStatus = errno;		// Process closed, but we missed it? was SIGCHLD ignored?
+		} else if (WIFSIGNALED(ExitCode)) {
 			PIDStatus = WTERMSIG(ExitCode)|128;
-		  else if (WIFEXITED(ExitCode))
+		} else if (WIFEXITED(ExitCode)) {
 			PIDStatus = WEXITSTATUS(ExitCode);
-			
+		}
 		if (CanSayDebug())
 			Say("Process", StatusName(PIDStatus), -PID);
 	}
 	
 	bool kill_me () {
-		if (!PID or DestroyMe or LeaveOrphaned or PIDStatus >= 0)
+		if (!PID or DestroyMe or LeaveOrphaned or (PIDStatus >= 0) or (StateFlags&1))
 			return true;
 		if (!InUse.enter())
 			return false;
