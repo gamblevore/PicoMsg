@@ -155,7 +155,7 @@ bool GetAndSay (PicoComms* M, float t) {
 }
 
 
-bool ThreadRespond (PicoComms* M) {
+void ThreadRespond (PicoComms* M, unsigned short Mode, const char** Args) {
 	strcpy(M->Name, "ThreadRespond");
 	GetAndSay(M, 6.0);
 	
@@ -167,16 +167,15 @@ bool ThreadRespond (PicoComms* M) {
 			break;
 		}
 
-		for (int i = 0; i < Msg.Length; i++) {
+		for (int i = 0; i < Msg.Length; i++)
 			(Msg.Data)[i]++;
-		}
+
 		PicoSend(M, Msg.Data, Msg.Length, PicoSendCanTimeOut);
 		free(Msg.Data);
 		n++;
 	}
 	
 	PicoSay(M, "Responses Given:", "", n);
-	return true;
 }
 
 
@@ -284,7 +283,7 @@ int TestFork (PicoComms* C) {
 }
 
 int TestThread (PicoComms* C) {
-	if (!PicoStartThread(C, (PicoThreadFn)ThreadRespond)) return -1;
+	if (!PicoStartThread(C, ThreadRespond)) return -1;
 	ThreadQuery(C);
 	PicoSleep(1.0); // let ThreadRespond exit
 	return 0;	
@@ -551,8 +550,11 @@ int main (int argc, const char * argv[]) {
 		rz = TestChildren(C);
 	  else if mode(7)
 		rz = TestKill(C);
-	  else
-		rz = -1;
+	  else {
+		errno = ENOTSUP;
+		perror("invalid test mode");
+		return -1;
+	}
 	PicoDestroy(C, "Finished");
 	return rz;
 }
