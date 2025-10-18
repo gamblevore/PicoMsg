@@ -4,8 +4,8 @@
 
 /// Parent-child queue-based message-passing.
 /// The API is simple. Hides the complexity of message-passing. 
-/// Uses a worker thread, and is non-blocking.
-/// 64 communicators max, this can be increased in the future. 
+/// Uses one (or more) worker threads, and is non-blocking.
+/// 64 communicators max. 
 
 /// Released 2024
 /// Author: Theodore H. Smith, http://gamblevore.org
@@ -830,13 +830,13 @@ struct PicoComms : PicoConfig {
 	}
 	
 	inline void do_io() {
-		do_reading();
-		do_sending();
+		if ((PartClosed&14) != 14 and ReadLock.enter())
+			do_reading();
+		if (can_send() and SendLock.enter())
+			do_sending();
 	}
 
 	void do_reading () {
-		if ((PartClosed&14) == 14) return;
-		if (!ReadLock.enter()) return;
 		if (!(PartClosed&2)) {
 			if (Socket > 0)					// else, its memory-only IPC.
 				read_part(Reading, Socket, 2);
@@ -850,11 +850,9 @@ struct PicoComms : PicoConfig {
 	}
 
 	void do_sending () { 
-		if (!can_send() or !SendLock.enter()) return;
-		
 		while ( auto Msg = Sending->AskUsed() ) {
 		// send(MSG_DONTWAIT) does nothing on OSX sadly.
-			int Amount = (int)send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+			int Amount = (int) send(Socket, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
   			if (Amount > 0) {
 				Sending->lost(Amount);
 				LastSend = PicoGetDate();
@@ -1102,7 +1100,9 @@ struct PicoComms : PicoConfig {
 	void io () {
 		if (DestroyMe or !InUse.enter())
 			return;
-		
+		// lock might be a little too aggressive.
+		// it dissallows two threads to both read/write at the same time
+		// but we still do want to block destruction/kill/waitpid
 		int P = PartClosed;			
 		if ((P&15) != 15)
 			do_io();
