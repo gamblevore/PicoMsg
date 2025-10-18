@@ -41,7 +41,7 @@ struct			PicoComms;
 struct			PicoGlobalConfig;
 struct			PicoMessage { char* Data; int Length;   operator bool () {return Data;}; };
 
-typedef void	(*PicoThreadFn)(PicoComms* M, unsigned short Mode, const char** Args);
+typedef void	(*PicoThreadFn)(PicoComms* M, unsigned int Mode, const char** Args);
 typedef int		(*PicoObserverFn)(PicoDate CurrTime);  /// Receives the time via clock_gettime(CLOCK_REALTIME)
 typedef char*   (*PicoAppenderFn)(void* Obj, int Length);
 
@@ -269,7 +269,7 @@ struct PicoBuff {
 //	int					FDLog;
 //	#endif
 	void*				ThreadArgs;
-	unsigned short		ThreadMode;
+	int					ThreadMode;
 	std::atomic_short	RefCount;
 	char				Data[0];             ;;;/*_*/;;;
 
@@ -556,7 +556,7 @@ struct PicoComms : PicoConfig {
 		return PID;
 	}
 
-	bool StartThread (int Noise, unsigned short Mode, PicoThreadFn fn, const char** Args) {
+	bool StartThread (PicoThreadFn fn, uint Mode, const char** Args, int Noise) {
 		if (!alloc_msg_buffs()) return false;
 
 		int ChildID = pico_list.Reserve();
@@ -1271,9 +1271,9 @@ extern "C" PicoComms* PicoStartChild (PicoComms* M) _pico_code_ (
 )
 
 
-extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, unsigned short Mode=0, const char** Args=nullptr) _pico_code_ (
+extern "C" bool PicoStartThread (PicoComms* M, PicoThreadFn fn, uint Mode=0, const char** Args=nullptr) _pico_code_ (
 /// Creates a new thread, using the function `fn`, and passes a newly created PicoComms object to your function! Also cleans up the newly created PicoComms when done. Returns `false` if any error occurred. Look at PicoTest.cpp for a good example. :) You can pass two user-defined parameters.
-	return M->StartThread(PicoNoiseEvents, Mode, fn, Args);
+	return M->StartThread(fn, Mode, Args, PicoNoiseEvents);
 )
 
 

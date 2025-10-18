@@ -1,6 +1,6 @@
 
 #define PICO_IMPLEMENTATION
-#define PICO_LOG "/tmp/PicoTest"
+// #define PICO_LOG "/tmp/PicoTest"
 
 #include "PicoMsg.h"
 #include <vector>
@@ -155,7 +155,7 @@ bool GetAndSay (PicoComms* M, float t) {
 }
 
 
-void ThreadRespond (PicoComms* M, unsigned short Mode, const char** Args) {
+void ThreadRespond (PicoComms* M, uint Mode, const char** Args) {
 	strcpy(M->Name, "ThreadRespond");
 	GetAndSay(M, 6.0);
 	
