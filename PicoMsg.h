@@ -408,21 +408,13 @@ struct PicoBuff {
 	int ReadLength () {
 		int N = Length();
 		if (N >= 4) {
-			int D = *((int*)(Data+Tail));
+			int T = Tail&(Size-1);
+			int D = *((int*)(Data+T));
 			lost(4);
 			return D;
 		}
 		return 0;
 	}
-
-//		  // however that needs the buffer upgrade first, which is delicate work.
-//	L = htole(Reading->ReadLength());
-//	if (L <= 0)
-//		return L < 0 and failed(EILSEQ);
-//	PreLength = L;
-//	if ( Reading->Size < L + PicoMsgInfo ) // msg bigger than our buffers
-//		return failed(EMSGSIZE);
-
 
 	void ReadInput4 (char* Dest, int N) {
 		ReadInput(Dest, N);
@@ -910,14 +902,11 @@ struct PicoComms : PicoConfig {
 		
 	bool pre_grab_sub () {
 		int L = PreLength;
-		if (!L) { // would be better to read directly without moving the buffer up
-				  // however that needs the buffer upgrade first, which is delicate work.
-			if (Reading->Length() < PicoMsgInfo) return false;
-			Reading->ReadInput((char*)&(PreLength), PicoMsgInfo);
-			PreLength = L = htole(PreLength);
+		if (!L) {
+			PreLength = L = htole(Reading->ReadLength()); 
 			if (L <= 0)
 				return L < 0 and failed(EILSEQ);
-			if ( Reading->Size < L + PicoMsgInfo ) // msg bigger than our buffers
+			if (Reading->Size < L + PicoMsgInfo)			// msg bigger than our buffers
 				return failed(EMSGSIZE);
 		}
 		
