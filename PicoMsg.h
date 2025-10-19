@@ -99,9 +99,7 @@ struct 			PicoConfig  {
 	PicoTrousers		SendLock;
 	PicoTrousers		ReadLock;
 	PicoTrousers		GrabLock;
-	std::atomic_char	DestroyMe;
 	PicoTrousers		InUse;
-	unsigned char		ID;
 	int					Socket;
 	int					PID;
 	PicoBuff*			Reading;
@@ -110,6 +108,8 @@ struct 			PicoConfig  {
 	PicoBuff*			StdOut;
 	std::atomic<char*>	PreData;
 	int					PreLength;
+	std::atomic_char	DestroyMe;  // these two must come last. It only memsets up to DestroyMe.
+	unsigned char		ID;			// and we wnat to keep the ID!
 #endif
 };
 
@@ -818,10 +818,10 @@ struct PicoComms : PicoConfig {
 		if (S >= 0) while ( auto Msg = B->AskUnused() ) {
 			int Amount = 0;
 			if (Part > 2)
-				Amount = (int)read(S, Msg.Data, Msg.Length);
+				Amount = (int) read(S, Msg.Data, Msg.Length);
 			  else // maybe nicer to avoid sockets and just use pipes. Simpler and more flexible.
 			       // and can still use sockets.
-				Amount = (int)recv(S, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
+				Amount = (int) recv(S, Msg.Data, Msg.Length, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (Amount <= 0) {
 				if (!io_pass(Amount, Part)) break;
 				continue;
