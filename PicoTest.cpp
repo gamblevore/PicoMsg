@@ -541,15 +541,15 @@ int main (int argc, const char * argv[]) {
 	  else if mode(3)
 		rz = TestExec(C);
 	  else if mode(4)
-		rz = ThreadBash(C, (void*)BashCreation);
-	  else if mode(41)
-		rz = ThreadBash(C, (void*)BashReserve);
+		rz = TestKill(C);
 	  else if mode(5)
 		rz = TestPipe(C);
 	  else if mode(6)
 		rz = TestChildren(C);
 	  else if mode(7)
-		rz = TestKill(C);
+		rz = ThreadBash(C, (void*)BashCreation);
+	  else if mode(8)
+		rz = ThreadBash(C, (void*)BashReserve);
 	  else {
 		errno = ENOTSUP;
 		perror("invalid test mode");
