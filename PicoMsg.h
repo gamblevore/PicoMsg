@@ -90,7 +90,7 @@ struct 			PicoConfig  {
 	unsigned char		Noise;			/// How much information PicoMsg prints. From `PicoSilent` to `PicoNoiseAll`
 	unsigned char		SendTimeOut;	/// The number of seconds before a send will timeout (if the send is not instant)
 	bool				LeaveOrphaned;	/// If this is true, the child-process will not be killed by `PicoKill()`
-	unsigned char		Bits; 			/// The size we used to allocate stuff. 1<<Bits
+	unsigned char		Bits; 			/// The size we used to allocate stuff:  1 << Bits
 	bool				IsParent;		/// Are we the parent.
 #if defined(PICO_IMPLEMENTATION) || defined(PICO_SEE_INTERNALS) /// Don't alter the internals. 
 	unsigned char		StateFlags;
@@ -168,10 +168,8 @@ static PicoTrousers PicoCommsLocker;
 
 
 PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
-	const uint64_t D = 15259; // for some reason unless we spell this out, xcode will miscompile this.
-	NS /= D;
-	S <<= 16;
-	return S + NS;         						   ;;;/*_*/;;;
+	uint64_t NS2 = (NS * 9223372046ULL)>>47ULL; // avoid division :)
+    return (S << 16) + NS2;
 }
 
 PicoDate PicoGetDate( ) {
@@ -351,7 +349,7 @@ struct PicoBuff {
 		while (auto Dest = AskUnused()) {
 			int Avail = std::min(Need, Dest.Length);
 			memcpy(Dest.Data, Src, Avail);
-			gained(Avail);
+			gained(Avail + (-Avail&3));
 			Need -= Avail;
 			Src += Avail;
 			if (Need <= 0) return;
@@ -391,7 +389,7 @@ struct PicoBuff {
 	int Length () {
 		return Head - Tail;
 	}  										;;;/*_*/;;;
-	 
+	
 	PicoDate SendOutput (const char* Src, int MsgLen) {
 //		this->Log(Src, MsgLen); // So I can search -> Log and get all.
 		int NetLen = letoh(MsgLen);
@@ -404,13 +402,34 @@ struct PicoBuff {
 	}
 	
 	/*	
-		* Would be better to align this to 4 everytime. This makes reading length simple.
-			* Head += -Head % 4;
-		* Now we don't need a length-buff.
 		* Can save 8*64 bytes by merge all buffs into one. Still need 4 ints.
 	*/
 
-	bool ReadInput (char* Dest, int N) {
+	int ReadLength () {
+		int N = Length();
+		if (N >= 4) {
+			int D = *((int*)(Data+Tail));
+			lost(4);
+			return D;
+		}
+		return 0;
+	}
+
+//		  // however that needs the buffer upgrade first, which is delicate work.
+//	L = htole(Reading->ReadLength());
+//	if (L <= 0)
+//		return L < 0 and failed(EILSEQ);
+//	PreLength = L;
+//	if ( Reading->Size < L + PicoMsgInfo ) // msg bigger than our buffers
+//		return failed(EMSGSIZE);
+
+
+	void ReadInput4 (char* Dest, int N) {
+		ReadInput(Dest, N);
+		Tail += (-N&3);
+	}
+	
+	void ReadInput (char* Dest, int N) {
 		while (auto Msg = AskUsed()) {
 			int B = std::min(Msg.Length, N); // 🕷️_🕷️
 			memcpy(Dest, Msg.Data, B);
@@ -419,7 +438,6 @@ struct PicoBuff {
 			lost(B);
 			if (N <= 0) break;
 		}
-		return true;
 	}
 }; 
 
@@ -907,7 +925,7 @@ struct PicoComms : PicoConfig {
 			return false;
 		
 		if (char* Data = phalloc(L+1); Data) {
-			Reading->ReadInput(Data, L);
+			Reading->ReadInput4(Data, L);
 			PreData = Data;
 			LastRead = PicoGetDate();
 			return true;
