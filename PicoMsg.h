@@ -26,6 +26,12 @@
 #define PicoSendGiveUp			0
 #define PicoSendCanTimeOut		1
 #define PicoMsgInfo				4
+
+#define PicoExecForked			1
+#define PicoExecOrphan			2
+#define PicoExecWantDead		4
+
+
 #ifndef PicoDefaultInitSize
 	#define PicoDefaultInitSize (1024*1024)
 #endif
@@ -89,11 +95,10 @@ struct 			PicoConfig  {
 	short				PIDStatus;		/// The exit-status of the sub-process (if any).
 	unsigned char		Noise;			/// How much information PicoMsg prints. From `PicoSilent` to `PicoNoiseAll`
 	unsigned char		SendTimeOut;	/// The number of seconds before a send will timeout (if the send is not instant)
-	bool				LeaveOrphaned;	/// If this is true, the child-process will not be killed by `PicoKill()`
 	unsigned char		Bits; 			/// The size we used to allocate stuff:  1 << Bits
 	bool				IsParent;		/// Are we the parent.
-#if defined(PICO_IMPLEMENTATION) || defined(PICO_SEE_INTERNALS) /// Don't alter the internals. 
 	unsigned char		ExecFlags;
+#if defined(PICO_IMPLEMENTATION) || defined(PICO_SEE_INTERNALS) /// Don't alter the internals. 
 	unsigned char		SocketStatus;
 	unsigned char		PartClosed;
 	PicoTrousers		SendLock;
@@ -239,13 +244,11 @@ struct PicoLister {
 	
 	PicoComms* NextComm () {
 		auto L = SavedList;
-		while (L) {
+		if (L) {
 			auto Lowest = L & -L;
 			L &= ~Lowest;
 			SavedList = L;
-			PicoComms* Found = (PicoComms*)&(pico_all[pico_log2(Lowest)]);
-			if (Found)
-				return Found;
+			return (PicoComms*)&(pico_all[pico_log2(Lowest)]);
 		}
 		return 0;
 	}
@@ -437,8 +440,8 @@ struct PicoBuff {
 
 struct PicoComms : PicoConfig {
 	static PicoComms* New (PicoComms* M, int noise, bool isparent, int size, const char* name, int ID) {
-		M = (PicoComms*)&pico_all[ID-1];
-		return M->Init(noise, isparent, size, name, ID-1);
+		M = (PicoComms*)&pico_all[--ID];
+		return M->Init(noise, isparent, size, name, ID);
 	}
 	
 	PicoComms* Init (int noise, bool isparent, int size, const char* name, int iD) { // constructor
@@ -512,8 +515,7 @@ struct PicoComms : PicoConfig {
 		if (PID)
 			return PID;
 		// CHILD
-		int p = getpid();
-		setpgid(p, p);
+		setpgid(getpid(), getppid());
 		execvp(argv[0], (char* const*)argv);
 		exit(errno); // execvp can fail!
 	}
@@ -532,7 +534,7 @@ struct PicoComms : PicoConfig {
 		
 		IsParent = ChildID;
 		if (!IsParent) {
-			ExecFlags|=1; // a forked child
+			ExecFlags |= PicoExecForked;
 			if (NoStdOut == 1) 
 				close(STDOUT_FILENO);
 			if (NoStdErr == 1) 
@@ -610,7 +612,7 @@ struct PicoComms : PicoConfig {
 	}
 
 	bool RestoreExec () {
-		ExecFlags |= 1;
+		ExecFlags |= PicoExecForked;
 		return StartSocket(FindSock()); 
 	}
 	
@@ -621,7 +623,7 @@ struct PicoComms : PicoConfig {
 		if (childid < 0) return GiveUp(Socks);
 
 		IsParent = childid!=0; // 🕷️_🕷️
-		ExecFlags|=childid!=0; // a forked child
+		ExecFlags |= childid==0; // a forked child
 		pclose(Socks[!IsParent]);
 		int S = Socks[IsParent];
 		if (!IsParent) {
@@ -639,7 +641,7 @@ struct PicoComms : PicoConfig {
 	/// **End of  Initialisation**
 	
 	void pclose (int S) {
-		if (S <= 2 and !(ExecFlags&1))
+		if (S <= 2 and !(ExecFlags&PicoExecForked))
 			Say("Closed STD", "", S);
 		close(S);
 	}
@@ -777,7 +779,7 @@ struct PicoComms : PicoConfig {
 			S->Status = T;
 			S->PID = PID;
 			S->StatusName = StatusName(T);
-			if (ExecFlags&1)
+			if (ExecFlags&PicoExecForked)
 				S->PID = getppid();
 		}
 		return T;
@@ -1052,7 +1054,7 @@ struct PicoComms : PicoConfig {
 		if (PIDStatus >= 0)
 			return;
 		if (!PID)
-			if (!(PartClosed == 15 and ExecFlags&1))
+			if (!(PartClosed == 15 and ExecFlags&PicoExecForked))
 				return;
 		
 		int ExitCode = 0;
@@ -1074,30 +1076,27 @@ struct PicoComms : PicoConfig {
 			Say("Process", StatusName(PIDStatus), -PID);
 	}
 	
-	bool kill_me () {
-		if (!PID or DestroyMe or LeaveOrphaned or (PIDStatus >= 0) or (ExecFlags&1))
-			return true;
-		if (!InUse.enter())
-			return false;
-		
-		// Don't update PIDStatus here. The kill might not go through! Or be caught and then die differently.
-		kill(PID, SIGKILL);
-		InUse.leave();
-		return true;
+	void kill_me () {
+		if (PID and (PIDStatus == -1)) {
+			ExecFlags &= ~PicoExecWantDead;
+			kill(PID, SIGKILL);
+		}
 	}
 	
 	void cleanup (PicoDate CheckPID) {
 		if (!InUse.enter())
 			return;
 		
-		if (CheckPID or (PartClosed&15)==15)
-			check_exit_code();
-
 		if (DestroyMe == 1) {
 			if (CanSayDebug()) Say("Bye");
 			check_exit_code(); // cleanup process PID list...
+			kill_me();
 			Destroy();
-		}
+		} else if (ExecFlags&PicoExecWantDead)
+			kill_me();
+		  else if (CheckPID or (PartClosed&15)==15)
+			check_exit_code();
+
 		InUse.leave();
 	}
 	
@@ -1237,7 +1236,7 @@ static bool pico_init (int D) {
 static void pico_kill_all () {
 	PicoLister Items;
 	while (auto M = Items.NextComm())
-		while (!M->kill_me());
+		M->ExecFlags |= PicoExecWantDead;
 }
 
 
@@ -1325,7 +1324,7 @@ extern "C" bool PicoRestoreExec (PicoComms* M) _pico_code_ (
 
 extern "C" void PicoKill(PicoComms* M) _pico_code_ (
 	if (M)
-		while (!M->kill_me());
+		M->ExecFlags |= PicoExecWantDead;
 	  else
 		pico_kill_all();
 )
@@ -1455,7 +1454,12 @@ extern "C" int PicoStatus (PicoComms* M, PicoProcStats* S=nullptr) _pico_code_ (
 
 extern "C" int PicoError (PicoComms* M) _pico_code_ (
 /// Returns an error that forced comms to close. If the comms is still open, the error is 0.
-	return M->SocketStatus;
+	int S = M->PIDStatus;
+	if (S == -1)
+		return M->SocketStatus;
+	if (S == 0)
+		return ESHUTDOWN;
+	return S;
 )
 
 
