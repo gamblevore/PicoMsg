@@ -93,7 +93,7 @@ struct 			PicoConfig  {
 	unsigned char		Bits; 			/// The size we used to allocate stuff:  1 << Bits
 	bool				IsParent;		/// Are we the parent.
 #if defined(PICO_IMPLEMENTATION) || defined(PICO_SEE_INTERNALS) /// Don't alter the internals. 
-	unsigned char		StateFlags;
+	unsigned char		ExecFlags;
 	unsigned char		SocketStatus;
 	unsigned char		PartClosed;
 	PicoTrousers		SendLock;
@@ -292,14 +292,14 @@ struct PicoBuff {
 //		Path[Sep] = 0;	
 //		if (mkdir(Path, 0755) < 0 and errno!=EEXIST) {
 //			printf("%s creating Path: %s\n", strerror(errno), Path);
-//			exit(-1);
+//			exit(errno);
 //		}
 //			
 //		Path[Sep] = '/';	
 //		Rz->FDLog = open(Path, O_WRONLY|O_CREAT|O_TRUNC|0755);
 //		if (Rz->FDLog == -1) {
 //			printf("%s opening LOG: %s\n", strerror(errno), Path);
-//			exit(-1);
+//			exit(errno);
 //		}
 //			
 //	#endif
@@ -328,7 +328,7 @@ struct PicoBuff {
 //					if (err == EINTR or err == EAGAIN)
 //						continue;
 //					perror("Failed write: ");
-//					exit(-1); // sigh
+//					exit(errno); // sigh
 //				}
 //				x+=N;
 //			}
@@ -360,7 +360,7 @@ struct PicoBuff {
 //	#ifdef PICO_DEBUG_LOG
 //		if (self->FDLog) {
 //			fsync(self->FDLog);
-//			close(self->FDLog);
+//			pclose(self->FDLog);
 //		}
 //	#endif
 		if (self and --(self->RefCount) == 0)
@@ -499,8 +499,8 @@ struct PicoComms : PicoConfig {
 				if (err != EINTR and err != EBUSY)	
 					return failed();
 			}
-			close(WR);
-			close(Capture[0]);
+			pclose(WR);
+			pclose(Capture[0]);
 		}
 		return nullptr;
 	}
@@ -532,7 +532,7 @@ struct PicoComms : PicoConfig {
 		
 		IsParent = ChildID;
 		if (!IsParent) {
-			StateFlags|=1; // a forked child
+			ExecFlags|=1; // a forked child
 			if (NoStdOut == 1) 
 				close(STDOUT_FILENO);
 			if (NoStdErr == 1) 
@@ -610,20 +610,21 @@ struct PicoComms : PicoConfig {
 	}
 
 	bool RestoreExec () {
+		ExecFlags |= 1;
 		return StartSocket(FindSock()); 
 	}
 	
 	pid_t StartFork (const char* ChildName, bool SaveSocket) {
 		int Socks[2] = {};
-		if (!get_pair_of(Socks)) return -1;
+		if (!get_pair_of(Socks)) return -errno;
 		pid_t childid = fork();
 		if (childid < 0) return GiveUp(Socks);
 
 		IsParent = childid!=0; // 🕷️_🕷️
-		close(Socks[!IsParent]);
+		ExecFlags|=childid!=0; // a forked child
+		pclose(Socks[!IsParent]);
 		int S = Socks[IsParent];
 		if (!IsParent) {
-			StateFlags|=1; // a forked child
 			if (ChildName)
 				strncpy(Name, ChildName, sizeof(Name));
 			pico_thread_count = 0; // Forked process don't keep threads.
@@ -637,11 +638,16 @@ struct PicoComms : PicoConfig {
 	}
 	/// **End of  Initialisation**
 	
+	void pclose (int S) {
+		if (S <= 2 and !(ExecFlags&1))
+			Say("Closed STD", "", S);
+		close(S);
+	}
 	
 	int GiveUp (int* Socks) {
-		close(Socks[0]);
-		close(Socks[1]);
-		return -1;
+		pclose(Socks[0]);
+		pclose(Socks[1]);
+		return -errno;
 	}
 	
 	int FindSock () {
@@ -771,7 +777,7 @@ struct PicoComms : PicoConfig {
 			S->Status = T;
 			S->PID = PID;
 			S->StatusName = StatusName(T);
-			if (StateFlags&1)
+			if (ExecFlags&1)
 				S->PID = getppid();
 		}
 		return T;
@@ -952,7 +958,7 @@ struct PicoComms : PicoConfig {
 	bool add_msg_buffs (int Sock) {
 		if (int S = Socket; S > 0) { // currently open still.
 			Socket = -1;
-			close(S);
+			pclose(S);
 			pico_open_sockets--;
 		}
 		unblock(Sock);
@@ -1025,7 +1031,7 @@ struct PicoComms : PicoConfig {
 		Socket = -1;
 		if (S > 0) {
 			pico_open_sockets--;
-			close(S);
+			pclose(S);
 		}
 		if (CanSayDebug()) {
 			io_buff_report(Sending);
@@ -1046,7 +1052,7 @@ struct PicoComms : PicoConfig {
 		if (PIDStatus >= 0)
 			return;
 		if (!PID)
-			if (!(PartClosed == 15 and StateFlags&1))
+			if (!(PartClosed == 15 and ExecFlags&1))
 				return;
 		
 		int ExitCode = 0;
@@ -1069,7 +1075,7 @@ struct PicoComms : PicoConfig {
 	}
 	
 	bool kill_me () {
-		if (!PID or DestroyMe or LeaveOrphaned or (PIDStatus >= 0) or (StateFlags&1))
+		if (!PID or DestroyMe or LeaveOrphaned or (PIDStatus >= 0) or (ExecFlags&1))
 			return true;
 		if (!InUse.enter())
 			return false;

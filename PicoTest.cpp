@@ -239,7 +239,7 @@ bool TestIntenseCompare (PicoComms* C, float T) {
 int TestFork (PicoComms* C) {
 	strcpy(C->Name, "Tester");
 	int PID = PicoStartFork(C, "Fixer");
-	C->Noise = PicoNoiseAll;
+//	C->Noise = PicoNoiseAll;
 	if (PID < 0)
 		return -PID;
 	
