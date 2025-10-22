@@ -397,9 +397,9 @@ int TestPipeChild () {
 
 int TestWaiting () {
 	printf("Starting %i\n", getpid());
-	PicoDate TimeOut = PicoGetDate() + 5*64*1024;
-	while (PicoGetDate() < TimeOut) {
-		printf("TimeLeft %i: %.1f\n", getpid(), (float)(TimeOut - PicoGetDate())/(64*1024.0));
+	PicoDate TimeOut = PicoNow() + 5*64*1024;
+	while (PicoNow() < TimeOut) {
+		printf("TimeLeft %i: %.1f\n", getpid(), (float)(TimeOut - PicoNow())/(64*1024.0));
 		PicoSleep(1);
 	}
 	printf("Exiting %i\n", getpid());
@@ -415,18 +415,18 @@ int TestPipe (PicoComms* C) {
 	int PID = PicoShellExec(C, "pipe", Args);
 	if (PID < 0) return -1;
 
-	PicoDate TimeOut = PicoGetDate() + 5*64*1024;
+	PicoDate TimeOut = PicoNow() + 5*64*1024;
 	while (true) {
 		auto Piece = PicoStdOut(C);
 		if (!Piece) {
-			if (PicoGetDate() < TimeOut)
+			if (PicoNow() < TimeOut)
 				continue;
 			if (auto Errs = PicoStdErr(C); Errs)
 				puts(Errs.Data);
 			puts("No more input");
 			return 0;
 		}
-		TimeOut = PicoGetDate() + 0.5*64*1024;
+		TimeOut = PicoNow() + 0.5*64*1024;
 		puts(Piece.Data);
 	}
 	return 0;
@@ -434,11 +434,11 @@ int TestPipe (PicoComms* C) {
 
 
 int TheActualChild () {
-	PicoDate Now = PicoGetDate();
+	PicoDate Now = PicoNow();
 	PicoDate Then = Now + ((Now&7)<<16); // up to 7 seconds extra
 	int i = 0;
 	int p = getpid();
-	while (PicoGetDate() < Then) {
+	while (PicoNow() < Then) {
 		i++;
 		printf("PID %i: %i\n", p, i);
 		sleep(1);
@@ -477,6 +477,46 @@ int TestChildren (PicoComms* C) {
 	}
 	
 	puts("All processes completed");
+	return 0;
+}
+
+
+int TestSleep (PicoComms* C) {
+	/// Tests sleep CPU usage
+	strcpy(C->Name, "ProcParent");
+	const char* Args[3] = {SelfPath, "sleep", 0};
+	PicoComms* Ch[10] = {};
+	
+	int Alive = 0;
+	for (int i = 0; i < 10; i++) {
+		char Name[4] = {'c', 'h', (char)('0' + i), 0};
+		Ch[i] = PicoCreate(Name);
+		Alive += PicoExec(Ch[i], Name, Args, true) > 0;
+	}
+	
+	printf("We just test the sleep energy of %i processes\n", Alive);
+	PicoDate Next = 0;
+	
+	for (int Count = 0; true;) {
+		if (PicoNow() >= Next) {
+			for (int i = 0; i < 10; i++) {
+				PicoSendStr(Ch[i], "sleep");
+			}
+			Next = PicoNow() + 64*1024*10; // send a message every 10 seconds
+			printf("Sent 'sleep' to %i processes. Occurance: %i\n", Alive, ++Count);
+		}
+		sleep(1);
+	}
+	
+	return 0;
+}
+
+
+int TestSleeper () {
+	PicoInit(); 
+	while (getppid() > 1) {
+		sleep(1);
+	}
 	return 0;
 }
 
@@ -523,6 +563,8 @@ int main (int argc, const char * argv[]) {
 		return TheActualChild();
 	if mode(wait)
 		return TestWaiting();
+	if mode(sleep)
+		return TestSleeper();
 	
 	auto C = PicoCreate(S);
 	if mode(exec)
@@ -550,6 +592,8 @@ int main (int argc, const char * argv[]) {
 		rz = ThreadBash(C, (void*)BashCreation);
 	  else if mode(8)
 		rz = ThreadBash(C, (void*)BashReserve);
+	  else if mode(9)
+		rz = TestSleep(C);
 	  else {
 		errno = ENOTSUP;
 		perror("invalid test mode");
