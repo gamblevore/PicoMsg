@@ -521,6 +521,36 @@ int TestSleeper () {
 }
 
 
+int TestPrintAlot () {
+	int n = (1024*1024)>>3;
+	for (int i = 1; i <= n; i++) {
+		printf("%07d\n", i);
+	}
+	return 0;
+}
+
+
+int TestALot (PicoComms* C) {
+	strcpy(C->Name, "ProcParent");
+	const char* Args[3] = {SelfPath, "alot", 0};
+	char Name[3] = {'c', 'h', 0};
+	PicoComms* Ch = PicoCreate(Name);
+	PicoExec(Ch, Name, Args, true, 0);
+	
+	puts("Parent Sleeping");
+	PicoSleep(2.0); 						// we want to read all... but only after sleeping.
+	while (PicoStatus(Ch) < 0) {
+		while (auto Str = PicoStdOut(Ch)) 
+			printf("%s", Str.Data);
+		PicoSleep(0.01);
+	}
+	puts("Parent Finished");
+	
+	return 0;
+}
+
+
+
 void DetectStatususus (PicoComms** Ch, int n) {
 	for (int i = 0; i < n; i++) {
 		PicoProcStats S;
@@ -529,8 +559,9 @@ void DetectStatususus (PicoComms** Ch, int n) {
 	}
 }
 
+
 int TestKill (PicoComms* C) {
-	PicoDestroy(C); // unneeded.
+	PicoDestroy(C);											// unneeded.
 	const char* Args[3] = {SelfPath, "wait", 0};
 	PicoComms* Ch[5] = {};
 
@@ -565,6 +596,8 @@ int main (int argc, const char * argv[]) {
 		return TestWaiting();
 	if mode(sleep)
 		return TestSleeper();
+	if mode(alot)
+		return TestPrintAlot();
 	
 	auto C = PicoCreate(S);
 	if mode(exec)
@@ -594,6 +627,8 @@ int main (int argc, const char * argv[]) {
 		rz = ThreadBash(C, (void*)BashReserve);
 	  else if mode(9)
 		rz = TestSleep(C);
+	  else if mode(10)
+		rz = TestALot(C);
 	  else {
 		errno = ENOTSUP;
 		perror("invalid test mode");
