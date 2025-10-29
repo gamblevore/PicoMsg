@@ -1058,7 +1058,7 @@ struct PicoComms : PicoConfig {
 	}
 	
 	void kill_me () {
-		if (PID and (PIDStatus == -1)) {
+		if (PID  and  PIDStatus == -1) {
 			ExecFlags &= ~PicoExecWantDead;
 			kill(PID, SIGKILL);
 		}
@@ -1227,7 +1227,7 @@ static bool pico_init (int D) {
 static void pico_kill_all () {
 	PicoLister Items;
 	while (auto M = Items.NextComm())
-		M->ExecFlags |= PicoExecWantDead;
+		M->kill_me();
 }
 
 
@@ -1312,12 +1312,14 @@ extern "C" bool PicoRestoreExec (PicoComms* M) _pico_code_ (
 	return M->RestoreExec();
 )
 
-
 extern "C" void PicoKill(PicoComms* M) _pico_code_ (
-	if (M)
-		M->ExecFlags |= PicoExecWantDead;
-	  else
-		pico_kill_all();
+/// Kills one child process. You can call this anytime. 
+	M->ExecFlags |= PicoExecWantDead;
+)
+
+extern "C" void PicoFinish() _pico_code_ (
+/// Kills all child processes. Assumes you only call this when your program is closing. 
+	pico_kill_all();
 )
 
 
