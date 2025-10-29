@@ -175,7 +175,7 @@ PicoDate pico_date_create ( uint64_t S, uint64_t NS ) {
     return (S << 16) + NS2;
 }
 
-PicoDate PicoNow( ) {
+PicoDate PicoNow () {
 	timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
 	return pico_date_create(ts.tv_sec, ts.tv_nsec);
 }
@@ -466,7 +466,7 @@ struct PicoComms : PicoConfig {
 		PicoBuff::Decr(StdOut );
 		if (CanSayDebug()) Say("Deleted");
 		memset(this, 0, sizeof(PicoComms));
-		int ID = this - (PicoComms*)(&pico_all[0]);
+		auto ID = this - (PicoComms*)(&pico_all[0]);
 		pico_list.Remove(ID);
 	}
 
@@ -1428,7 +1428,7 @@ extern "C" bool PicoInit (int DesiredThreadCount=0) _pico_code_ (
 
 extern "C" int PicoStatus (PicoComms* M, PicoProcStats* S=nullptr) _pico_code_ (
 	/// Pico has a unified system for status codes.
-	/// EG: After `PicoShellExec(M)`, then call `PicoInfo(M)` to find `M`'s status.
+	/// EG: After `PicoShellExec(M)`, then call `PicoStatus(M)` to find `M`'s status.
 	/// Result codes:
 	//  Positive:  A crash, or exited normally but with an error.
 	//  Negative:  The program is still running.
@@ -1436,7 +1436,7 @@ extern "C" int PicoStatus (PicoComms* M, PicoProcStats* S=nullptr) _pico_code_ (
 	
 	/// Positive numbers are either from errno, or signal numbers.
 	/// A number of 128 or more, is a signal.
-	/// You can check if the process is finished with:  `(PicoInfo(M, nullptr) >= 0)`
+	/// You can check if the process is finished with:  `(PicoStatus(M, nullptr) >= 0)`
 	/// Get extra info by passing a `PicoProcStats` struct. Contains error names, and the PID. 
 	
 	/// Don't `free()` the `StatusName` field in `PicoProcStats`! Just let it be.
@@ -1452,7 +1452,6 @@ extern "C" int PicoError (PicoComms* M) _pico_code_ (
 		return ESHUTDOWN;
 	return S;
 )
-
 
 extern "C" PicoGlobalConfig* PicoGlobalConf() _pico_code_ (
 // Returns the global conf struct, which allows you to set important values.
